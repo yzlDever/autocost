@@ -1,10 +1,6 @@
 import type { QueryItem, QueryLog } from "./types";
 import { sha256 } from "./utils";
 
-const RATE_WINDOW_MS = 60_000;
-const RATE_LIMIT = 20;
-const rateBuckets = new Map<string, number[]>();
-
 export function normalizeQueryItems(items: QueryItem[]) {
   return items
     .map((item) => ({ ...item }))
@@ -13,19 +9,6 @@ export function normalizeQueryItems(items: QueryItem[]) {
 
 export function queryFingerprint(clientId: string, items: QueryItem[]) {
   return sha256(`${clientId}:${JSON.stringify(normalizeQueryItems(items))}`);
-}
-
-export function isRateLimited(clientId: string, now = Date.now()) {
-  const recent = (rateBuckets.get(clientId) ?? []).filter(
-    (timestamp) => now - timestamp < RATE_WINDOW_MS,
-  );
-  if (recent.length >= RATE_LIMIT) {
-    rateBuckets.set(clientId, recent);
-    return true;
-  }
-  recent.push(now);
-  rateBuckets.set(clientId, recent);
-  return false;
 }
 
 function sameRange(a: QueryItem, b: QueryItem) {
@@ -61,8 +44,4 @@ export function hasDifferencingRisk(
     });
     return changedIds.length === 1;
   });
-}
-
-export function resetRateLimitForTests() {
-  rateBuckets.clear();
 }

@@ -1,9 +1,5 @@
 import { CalculationError, calculateBatchCost, validateQueryItems } from "@/lib/cost-calculation";
-import {
-  hasDifferencingRisk,
-  isRateLimited,
-  queryFingerprint,
-} from "@/lib/query-security";
+import { hasDifferencingRisk, queryFingerprint } from "@/lib/query-security";
 import {
   appendQueryLog,
   findActiveApiClientByKey,
@@ -73,9 +69,6 @@ export async function POST(request: Request) {
   let fingerprint = sha256(`${client.id}:invalid`);
   let totalDays = 0;
   try {
-    if (isRateLimited(client.id)) {
-      throw new ApiRequestError("RATE_LIMITED", "请求过于频繁，请稍后重试。", 429);
-    }
     let body: unknown;
     try {
       body = await request.json();
