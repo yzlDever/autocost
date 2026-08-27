@@ -20,6 +20,11 @@
 # local development data
 /.data/
 
+# sensitive payroll import files
+*.xlsx
+*.xls
+*.csv
+
 # vercel
 .vercel
 
