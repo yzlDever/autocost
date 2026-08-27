@@ -3,6 +3,8 @@ import { DingTalkDirectoryError, fetchDingTalkDirectory } from "@/lib/dingtalk";
 import { recordAudit, syncDingTalkDirectory } from "@/lib/store";
 import { getRequestIp } from "@/lib/utils";
 
+export const maxDuration = 300;
+
 export async function POST(request: Request) {
   const auth = await requireApiSession();
   if (auth.response) return auth.response;

@@ -72,13 +72,14 @@ V1 是环境测试版本：使用固定账号登录，完成工资 Excel 导入�
 
 ### 5.3 钉钉通讯录同步
 
-- 使用应用 AccessToken 调用 `topapi/v2/department/listsub`，从根部门开始递归读取部门树。
-- 对每个部门调用 `topapi/v2/user/list`，每页最多 100 人并按游标读取完整结果，按钉钉 userId 去重。
+- 使用应用 AccessToken 调用 `topapi/v2/department/listsub`，从根部门开始递归读取部门树；AccessToken 按服务端返回有效期缓存并预留 60 秒过期缓冲。
+- 对每个部门调用 `topapi/v2/user/list`，每页最多 100 人并按游标读取完整结果，按钉钉 userId 去重；部门与成员请求使用最多 6 路受控并发。
 - 需要 `qyapi_get_department_list` 和 `qyapi_get_department_member` 两项应用权限；同步范围以钉钉后台配置的通讯录权限范围为准。
 - 人员关联顺序为：钉钉 userId、唯一工号、唯一姓名。关联后保留系统人员 ID，避免工资历史断链。
 - 本次结果中缺失的既有钉钉人员标记为 `inactive`，不物理删除人员或工资历史。
 - 首次获得非空真实通讯录后清除演示人员及其演示成本；不影响 Excel 导入或真实工资历史。
 - 每次成功或失败同步都写入审计日志，不记录 AccessToken、Client Secret 或手机号。
+- 手动同步路由声明最长 300 秒执行时间，以覆盖大型组织的完整分页读取。
 
 ## 6. 数据实体
 

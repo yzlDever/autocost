@@ -5,7 +5,9 @@ import type { DirectoryPerson, DirectorySnapshot } from "./directory-sync";
 const DINGTALK_AUTHORIZE_URL = "https://login.dingtalk.com/oauth2/auth";
 const DINGTALK_API_URL = "https://api.dingtalk.com";
 const DINGTALK_LEGACY_API_URL = "https://oapi.dingtalk.com";
-const REQUEST_TIMEOUT_MS = 12_000;
+const REQUEST_TIMEOUT_MS = 20_000;
+const DIRECTORY_CONCURRENCY = 6;
+const ACCESS_TOKEN_EXPIRY_BUFFER_MS = 60_000;
 
 type DingTalkConfig = {
   clientId: string;
@@ -16,6 +18,12 @@ type DingTalkConfig = {
 };
 
 type DingTalkAppConfig = Pick<DingTalkConfig, "clientId" | "clientSecret">;
+
+type CachedOrganizationToken = {
+  clientId: string;
+  accessToken: string;
+  expiresAt: number;
+};
 
 type DingTalkUserToken = {
   accessToken: string;
@@ -62,6 +70,9 @@ export class DingTalkDirectoryError extends Error {
     this.name = "DingTalkDirectoryError";
   }
 }
+
+let organizationTokenCache: CachedOrganizationToken | null = null;
+let organizationTokenPromise: Promise<string> | null = null;
 
 function parseAllowedUserIds(value: string | undefined) {
   return new Set(
@@ -205,15 +216,42 @@ async function getCurrentUser(userAccessToken: string): Promise<DingTalkCurrentU
 }
 
 async function getOrganizationAccessToken(config: DingTalkAppConfig) {
-  const result = await postJson(`${DINGTALK_API_URL}/v1.0/oauth2/accessToken`, {
-    appKey: config.clientId,
-    appSecret: config.clientSecret,
-  });
-  const accessToken = String(result.accessToken ?? "");
-  if (!accessToken) {
-    throw new DingTalkAuthError("DINGTALK_UPSTREAM_ERROR", "钉钉未返回有效的应用凭证。");
+  const now = Date.now();
+  if (
+    organizationTokenCache?.clientId === config.clientId &&
+    organizationTokenCache.expiresAt - ACCESS_TOKEN_EXPIRY_BUFFER_MS > now
+  ) {
+    return organizationTokenCache.accessToken;
   }
-  return accessToken;
+  if (!organizationTokenPromise) {
+    organizationTokenPromise = (async () => {
+      const result = await postJson(`${DINGTALK_API_URL}/v1.0/oauth2/accessToken`, {
+        appKey: config.clientId,
+        appSecret: config.clientSecret,
+      });
+      const accessToken = String(result.accessToken ?? "");
+      if (!accessToken) {
+        throw new DingTalkAuthError("DINGTALK_UPSTREAM_ERROR", "钉钉未返回有效的应用凭证。");
+      }
+      const expiresInSeconds = Number(result.expireIn ?? 7200);
+      organizationTokenCache = {
+        clientId: config.clientId,
+        accessToken,
+        expiresAt: Date.now() + (
+          Number.isFinite(expiresInSeconds) && expiresInSeconds > 0
+            ? expiresInSeconds
+            : 7200
+        ) * 1000,
+      };
+      return accessToken;
+    })();
+  }
+  const pendingToken = organizationTokenPromise;
+  try {
+    return await pendingToken;
+  } finally {
+    if (organizationTokenPromise === pendingToken) organizationTokenPromise = null;
+  }
 }
 
 function isPermissionError(result: Record<string, unknown>) {
@@ -271,32 +309,64 @@ function asNumberArray(value: unknown) {
     .filter((item) => Number.isFinite(item));
 }
 
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T) => Promise<R>,
+) {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  const workers = Array.from(
+    { length: Math.min(concurrency, items.length) },
+    async () => {
+      while (nextIndex < items.length) {
+        const index = nextIndex;
+        nextIndex += 1;
+        results[index] = await mapper(items[index]);
+      }
+    },
+  );
+  await Promise.all(workers);
+  return results;
+}
+
 async function getDepartments(accessToken: string) {
   const departments = new Map<number, string>([[1, "全公司"]]);
   const queue = [1];
   const visited = new Set<number>();
 
   while (queue.length > 0) {
-    const departmentId = queue.shift();
-    if (departmentId === undefined || visited.has(departmentId)) continue;
-    visited.add(departmentId);
+    const batch: number[] = [];
+    while (queue.length > 0 && batch.length < DIRECTORY_CONCURRENCY) {
+      const departmentId = queue.shift();
+      if (departmentId === undefined || visited.has(departmentId)) continue;
+      visited.add(departmentId);
+      batch.push(departmentId);
+    }
+    if (batch.length === 0) continue;
     if (visited.size > 10_000) {
       throw new DingTalkDirectoryError(
         "DINGTALK_DIRECTORY_UPSTREAM_ERROR",
         "钉钉返回的部门数量超过安全限制。",
       );
     }
-    const result = await callDirectoryApi(
-      accessToken,
-      "/topapi/v2/department/listsub",
-      { dept_id: departmentId, language: "zh_CN" },
+    const results = await mapWithConcurrency(
+      batch,
+      DIRECTORY_CONCURRENCY,
+      (departmentId) => callDirectoryApi(
+        accessToken,
+        "/topapi/v2/department/listsub",
+        { dept_id: departmentId, language: "zh_CN" },
+      ),
     );
-    asRecordArray(result).forEach((department) => {
-      const id = Number(department.dept_id);
-      const name = String(department.name ?? "").trim();
-      if (!Number.isFinite(id) || !name || departments.has(id)) return;
-      departments.set(id, name);
-      queue.push(id);
+    results.forEach((result) => {
+      asRecordArray(result).forEach((department) => {
+        const id = Number(department.dept_id);
+        const name = String(department.name ?? "").trim();
+        if (!Number.isFinite(id) || !name || departments.has(id)) return;
+        departments.set(id, name);
+        queue.push(id);
+      });
     });
   }
   return departments;
@@ -357,8 +427,12 @@ export async function fetchDingTalkDirectory(): Promise<DirectorySnapshot> {
   }
   const departments = await getDepartments(accessToken);
   const peopleByUserId = new Map<string, DirectoryPerson>();
-  for (const departmentId of departments.keys()) {
-    const departmentPeople = await getDepartmentPeople(accessToken, departmentId);
+  const departmentPeopleResults = await mapWithConcurrency(
+    [...departments.keys()],
+    DIRECTORY_CONCURRENCY,
+    (departmentId) => getDepartmentPeople(accessToken, departmentId),
+  );
+  departmentPeopleResults.forEach((departmentPeople) => {
     departmentPeople.forEach((person) => {
       if (!person.userId || !person.name) return;
       const existing = peopleByUserId.get(person.userId);
@@ -369,7 +443,7 @@ export async function fetchDingTalkDirectory(): Promise<DirectorySnapshot> {
         peopleByUserId.set(person.userId, person);
       }
     });
-  }
+  });
   return { people: [...peopleByUserId.values()], departments };
 }
 
