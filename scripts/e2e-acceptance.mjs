@@ -28,6 +28,26 @@ async function json(response) {
   return response.json();
 }
 
+await checked("login page exposes DingTalk with a safe unconfigured state", async () => {
+  const response = await appFetch("/login");
+  const html = await response.text();
+  assert.equal(response.status, 200);
+  assert.match(html, /钉钉扫码登录待配置/);
+  assert.doesNotMatch(html, /DINGTALK_CLIENT_SECRET|clientSecret/);
+});
+
+await checked("unconfigured DingTalk entry redirects to a safe login error", async () => {
+  const response = await appFetch("/api/auth/dingtalk");
+  assert.equal(response.status, 302);
+  assert.match(response.headers.get("location") ?? "", /\/login\?error=dingtalk_not_configured$/);
+});
+
+await checked("DingTalk callback rejects a missing OAuth state", async () => {
+  const response = await appFetch("/api/auth/dingtalk/callback?code=untrusted-code&state=invalid");
+  assert.equal(response.status, 302);
+  assert.match(response.headers.get("location") ?? "", /\/login\?error=dingtalk_state_invalid$/);
+});
+
 await checked("login rejects wrong password", async () => {
   const response = await appFetch("/api/auth/login", {
     method: "POST",

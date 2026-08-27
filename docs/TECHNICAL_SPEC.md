@@ -60,11 +60,15 @@ V1 是环境测试版本：使用固定账号登录，完成工资 Excel 导入�
 - Cookie 属性：HttpOnly、SameSite=Lax、生产环境 Secure、8 小时过期。
 - 登录失败采用来源 IP + 用户名的内存限流；审计只记录用户名、来源和结果，不记录密码。
 
-### 5.2 钉钉预留
+### 5.2 钉钉扫码登录
 
-- 预留 `DirectoryProvider` 与 `AuthProvider` 接口。
-- V1 使用演示通讯录同步；提供钉钉凭据后替换为企业内部应用 OAuth 与通讯录 API。
-- 通讯录所有人员可同步，但只有财务白名单可登录。
+- 使用企业内部应用 OAuth 2.0 网页授权，授权入口为 `/api/auth/dingtalk`，回调为 `/api/auth/dingtalk/callback`。
+- OAuth `state` 使用 256 位随机数并通过 HttpOnly、SameSite=Lax、10 分钟有效期 Cookie 绑定，回调后立即清除，防止登录 CSRF 与重放。
+- 服务端以授权码换取用户访问凭证，读取 `unionId`，再通过企业应用凭证换取组织 AccessToken，并将 `unionId` 映射为企业 `userId`。
+- 登录采用双重权限控制：钉钉应用“可使用范围”仅配置财务人员；系统端 `DINGTALK_ALLOWED_USER_IDS` 再次校验。
+- 需要钉钉“成员信息读权限”；不申请手机号权限，不读取手机号。
+- 钉钉身份会写入现有 8 小时签名会话 Cookie，Cookie 中仅保存姓名、认证来源和钉钉 `userId`，不保存钉钉 AccessToken。
+- 固定账号在本地环境继续作为故障回退；正式开放前必须更换或移除。
 
 ## 6. 数据实体
 
@@ -234,6 +238,11 @@ ADMIN_USERNAME=        # 可选，必须与 ADMIN_PASSWORD 同时配置
 ADMIN_PASSWORD=        # 可选
 AUTH_SECRET=           # 可选，建议正式开放前独立配置
 DATA_BACKEND=local|neon # 本地可选；生产存在 DATABASE_URL 时自动使用 Neon
+DINGTALK_CLIENT_ID=     # 企业内部应用 Client ID
+DINGTALK_CLIENT_SECRET= # 企业内部应用 Client Secret，仅服务端
+DINGTALK_REDIRECT_URI=  # 例如 http://localhost:3000/api/auth/dingtalk/callback
+DINGTALK_CORP_ID=       # 可选但建议配置，用于校验登录组织
+DINGTALK_ALLOWED_USER_IDS= # 财务人员钉钉 userId，英文逗号分隔
 ```
 
 秘密变量不能使用 `NEXT_PUBLIC_` 前缀。预览环境不得连接生产工资数据库。
@@ -242,7 +251,7 @@ DATA_BACKEND=local|neon # 本地可选；生产存在 DATABASE_URL 时自动使�
 
 V1 不包含：
 
-- 钉钉真实扫码登录和生产通讯录授权。
+- 钉钉通讯录全量自动同步（当前只接入真实扫码登录及成员身份映射）。
 - 多角色细分和审批流。
 - 原始 Excel 长期归档。
 - 差分隐私噪声算法。

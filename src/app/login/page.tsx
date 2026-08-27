@@ -1,12 +1,31 @@
 import { redirect } from "next/navigation";
-import { ShieldCheck, Sparkles } from "lucide-react";
+import { ScanLine, ShieldCheck, Sparkles } from "lucide-react";
+import { isDingTalkAuthConfigured } from "@/lib/dingtalk";
 import { getSession } from "@/lib/session";
 import { LoginForm } from "./login-form";
 
 export const metadata = { title: "登录" };
 
-export default async function LoginPage() {
+const loginErrors: Record<string, string> = {
+  dingtalk_not_configured: "钉钉登录尚未完成应用配置，请先使用测试账号。",
+  dingtalk_state_invalid: "登录请求已过期，请重新扫码。",
+  dingtalk_cancelled: "钉钉授权已取消。",
+  dingtalk_rejected: "钉钉未能确认本次登录，请重新扫码。",
+  dingtalk_wrong_org: "请选择公司企业组织后再登录。",
+  dingtalk_not_member: "当前账号不是公司企业组织的有效成员。",
+  dingtalk_not_allowed: "当前账号不在财务登录白名单中。",
+  dingtalk_unavailable: "钉钉身份服务暂时不可用，请稍后重试。",
+};
+
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string }>;
+}) {
   if (await getSession()) redirect("/dashboard");
+  const { error } = await searchParams;
+  const errorMessage = error ? loginErrors[error] : null;
+  const dingTalkConfigured = isDingTalkAuthConfigured();
   return (
     <main className="login-page">
       <section className="login-intro" aria-label="系统介绍">
@@ -24,6 +43,17 @@ export default async function LoginPage() {
           <span className="eyebrow">环境测试</span>
           <h2>欢迎回来</h2>
           <p className="muted">登录后查看、维护和安全地提供人力成本数据。</p>
+          {errorMessage ? <p className="form-error login-provider-error" role="alert">{errorMessage}</p> : null}
+          {dingTalkConfigured ? (
+            <a className="button dingtalk-login" href="/api/auth/dingtalk">
+              <ScanLine size={18} /> 使用钉钉扫码登录
+            </a>
+          ) : (
+            <button className="button dingtalk-login" type="button" disabled title="完成钉钉应用配置后启用">
+              <ScanLine size={18} /> 钉钉扫码登录待配置
+            </button>
+          )}
+          <div className="login-divider"><span>环境测试账号</span></div>
           <LoginForm />
           <div className="test-account"><span>测试账号</span><code>admin</code><span>/</span><code>admin123</code></div>
         </div>

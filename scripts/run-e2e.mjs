@@ -16,6 +16,10 @@ const server = spawn(
       DATA_BACKEND: "local",
       LOCAL_DATA_PATH: acceptanceStatePath,
       AUTH_SECRET: "local-acceptance-secret",
+      DINGTALK_CLIENT_ID: "",
+      DINGTALK_CLIENT_SECRET: "",
+      DINGTALK_REDIRECT_URI: "",
+      DINGTALK_ALLOWED_USER_IDS: "",
     },
     stdio: ["ignore", "pipe", "pipe"],
   },
@@ -43,6 +47,9 @@ const ready = new Promise((resolve, reject) => {
 try {
   await ready;
   await import("./e2e-acceptance.mjs");
+} catch (error) {
+  console.error(output);
+  throw error;
 } finally {
   server.kill("SIGINT");
 }
