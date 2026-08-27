@@ -44,14 +44,14 @@ export function applyDingTalkDirectorySnapshot(
     if (!employee && person.employeeNo) {
       employee = findUnique(
         draft.employees.filter(
-          (item) => !item.dingtalkUserId && item.source !== "demo" && item.employeeNo === person.employeeNo,
+          (item) => !item.dingtalkUserId && item.employeeNo === person.employeeNo,
         ),
       ) ?? undefined;
     }
     if (!employee) {
       employee = findUnique(
         draft.employees.filter(
-          (item) => !item.dingtalkUserId && item.source !== "demo" && item.name === person.name.trim(),
+          (item) => !item.dingtalkUserId && item.name === person.name.trim(),
         ),
       ) ?? undefined;
     }
@@ -97,23 +97,12 @@ export function applyDingTalkDirectorySnapshot(
     }
   });
 
-  const demoEmployeeIds = new Set(
-    draft.employees.filter((employee) => employee.source === "demo").map((employee) => employee.id),
-  );
-  let removedDemoEmployees = 0;
-  if (peopleByUserId.size > 0 && demoEmployeeIds.size > 0) {
-    draft.employees = draft.employees.filter((employee) => !demoEmployeeIds.has(employee.id));
-    draft.monthlyCosts = draft.monthlyCosts.filter((cost) => !demoEmployeeIds.has(cost.employeeId));
-    removedDemoEmployees = demoEmployeeIds.size;
-  }
-
   return {
     count: peopleByUserId.size,
     created,
     linked,
     updated,
     inactivated,
-    removedDemoEmployees,
     departmentCount: snapshot.departments.size,
     syncedAt: now,
   };

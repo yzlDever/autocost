@@ -86,36 +86,3 @@ test("marks missing DingTalk members inactive and keeps payroll history", () => 
   assert.equal(state.employees[0]?.status, "inactive");
   assert.equal(state.monthlyCosts.length, 1);
 });
-
-test("removes demo records after the first non-empty real directory sync", () => {
-  const state = emptyState();
-  state.employees.push({
-    id: "emp_demo_01",
-    dingtalkUserId: "ding_demo_01",
-    employeeNo: "D0001",
-    name: "演示员工01",
-    department: "财务部",
-    status: "active",
-    source: "demo",
-    lastSyncedAt: now,
-  });
-  state.monthlyCosts.push({
-    employeeId: "emp_demo_01",
-    employeeNameSnapshot: "演示员工01",
-    departmentSnapshot: "财务部",
-    period: "2026-07",
-    amountCents: 100_000,
-    version: 1,
-    updatedBy: "system",
-    updatedAt: now,
-  });
-
-  const result = applyDingTalkDirectorySnapshot(state, {
-    departments: new Map([[1, "全公司"]]),
-    people: [{ userId: "ding-1", name: "张三", employeeNo: null, departmentIds: [1] }],
-  }, now);
-
-  assert.equal(result.removedDemoEmployees, 1);
-  assert.equal(state.employees.some((employee) => employee.source === "demo"), false);
-  assert.equal(state.monthlyCosts.some((cost) => cost.employeeId === "emp_demo_01"), false);
-});

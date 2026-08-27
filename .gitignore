@@ -1,44 +1,60 @@
 # dependencies
-/node_modules
+/node_modules/
 /.pnp
 .pnp.*
 
-# testing
-/coverage
+# tests and browser artifacts
+/coverage/
+/test-results/
+/playwright-report/
+/artifacts/
 
-# next.js
+# Next.js and generated builds
 /.next/
 /out/
+/build/
+/dist/
 
-# production
-/build
-
-# local environment files
-.env*
+# environment variables and secrets
+.env
+.env.*
 !.env.example
+*.pem
+*.key
+*.p12
+*.pfx
 
-# local development data
+# local data and databases
 /.data/
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
 
-# sensitive payroll import files
+# payroll and exported business data
 *.xlsx
 *.xls
 *.csv
+*.tsv
 
-# vercel
-.vercel
+# Vercel
+/.vercel/
 
-# typescript
+# TypeScript
 *.tsbuildinfo
 next-env.d.ts
 
-# misc
+# editors and operating systems
+/.idea/
+/.vscode/
 .DS_Store
-*.pem
+Thumbs.db
+
+# logs and temporary files
+*.log
+*.tmp
+*.temp
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
-
-# browser verification artifacts
-/artifacts/

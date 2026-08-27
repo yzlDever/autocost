@@ -9,12 +9,12 @@ const DINGTALK_OAUTH_COOKIE_NAME = "auto_cost_dingtalk_oauth";
 const SESSION_SECONDS = 8 * 60 * 60;
 const OAUTH_STATE_SECONDS = 10 * 60;
 
-export type SessionProvider = "credentials" | "dingtalk";
+export type SessionProvider = "dingtalk";
 
 export type SessionIdentity = {
   username: string;
   provider: SessionProvider;
-  dingtalkUserId?: string;
+  dingtalkUserId: string;
 };
 
 export type Session = SessionIdentity & {
@@ -40,26 +40,13 @@ function getAuthSecret() {
   return "auto-cost-development-secret";
 }
 
-export function getAdminCredentials() {
-  const username = process.env.ADMIN_USERNAME;
-  const password = process.env.ADMIN_PASSWORD;
-  if (username && password) return { username, password };
-  if (username || password) {
-    throw new Error("ADMIN_USERNAME 和 ADMIN_PASSWORD 必须同时配置。");
-  }
-  return { username: "admin", password: "admin123" };
-}
-
 function sign(payload: string) {
   return createHmac("sha256", getAuthSecret()).update(payload).digest("base64url");
 }
 
-export function createSessionToken(identity: string | SessionIdentity) {
-  const normalized: SessionIdentity = typeof identity === "string"
-    ? { username: identity, provider: "credentials" }
-    : identity;
+export function createSessionToken(identity: SessionIdentity) {
   const session: Session = {
-    ...normalized,
+    ...identity,
     exp: Math.floor(Date.now() / 1000) + SESSION_SECONDS,
   };
   const payload = Buffer.from(JSON.stringify(session)).toString("base64url");
@@ -76,14 +63,16 @@ export function verifySessionToken(token: string | undefined): Session | null {
   if (provided.length !== expected.length || !timingSafeEqual(provided, expected)) return null;
   try {
     const parsed = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as Partial<Session>;
+    if (parsed.provider !== "dingtalk") return null;
     const session: Session = {
       username: String(parsed.username ?? ""),
-      provider: parsed.provider === "dingtalk" ? "dingtalk" : "credentials",
-      ...(parsed.dingtalkUserId ? { dingtalkUserId: String(parsed.dingtalkUserId) } : {}),
+      provider: "dingtalk",
+      dingtalkUserId: String(parsed.dingtalkUserId ?? ""),
       exp: Number(parsed.exp),
     };
     if (
       !session.username ||
+      !session.dingtalkUserId ||
       !Number.isFinite(session.exp) ||
       session.exp <= Math.floor(Date.now() / 1000)
     ) return null;
@@ -104,7 +93,7 @@ export async function requireSession() {
   return session;
 }
 
-export async function setSessionCookie(identity: string | SessionIdentity) {
+export async function setSessionCookie(identity: SessionIdentity) {
   const cookieStore = await cookies();
   cookieStore.set(COOKIE_NAME, createSessionToken(identity), {
     httpOnly: true,
@@ -195,13 +184,4 @@ export async function clearOAuthStateCookie() {
     path: "/api/auth/dingtalk",
     expires: new Date(0),
   });
-}
-
-export function credentialsMatch(input: string, expected: string) {
-  const inputBuffer = Buffer.from(input);
-  const expectedBuffer = Buffer.from(expected);
-  return (
-    inputBuffer.length === expectedBuffer.length &&
-    timingSafeEqual(inputBuffer, expectedBuffer)
-  );
 }

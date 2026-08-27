@@ -2,12 +2,11 @@ import { redirect } from "next/navigation";
 import { ScanLine, ShieldCheck, Sparkles } from "lucide-react";
 import { isDingTalkAuthConfigured } from "@/lib/dingtalk";
 import { getSession } from "@/lib/session";
-import { LoginForm } from "./login-form";
 
 export const metadata = { title: "登录" };
 
 const loginErrors: Record<string, string> = {
-  dingtalk_not_configured: "钉钉登录尚未完成应用配置，请先使用测试账号。",
+  dingtalk_not_configured: "钉钉登录尚未完成应用配置，请联系系统管理员。",
   dingtalk_state_invalid: "登录请求已过期，请重新扫码。",
   dingtalk_cancelled: "钉钉授权已取消。",
   dingtalk_rejected: "钉钉未能确认本次登录，请重新扫码。",
@@ -40,7 +39,7 @@ export default async function LoginPage({
       <section className="login-panel">
         <div className="login-card">
           <div className="mobile-brand"><div className="brand-mark">AC</div><strong>Auto Cost</strong></div>
-          <span className="eyebrow">环境测试</span>
+          <span className="eyebrow">企业安全登录</span>
           <h2>欢迎回来</h2>
           <p className="muted">登录后查看、维护和安全地提供人力成本数据。</p>
           {errorMessage ? <p className="form-error login-provider-error" role="alert">{errorMessage}</p> : null}
@@ -53,9 +52,6 @@ export default async function LoginPage({
               <ScanLine size={18} /> 钉钉扫码登录待配置
             </button>
           )}
-          <div className="login-divider"><span>环境测试账号</span></div>
-          <LoginForm />
-          <div className="test-account"><span>测试账号</span><code>admin</code><span>/</span><code>admin123</code></div>
         </div>
       </section>
     </main>

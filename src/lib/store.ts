@@ -7,63 +7,17 @@ import type {
   ApiClient,
   AuditEvent,
   ImportPreview,
-  MonthlyCost,
   QueryLog,
   StoreState,
 } from "./types";
 import { applyDingTalkDirectorySnapshot, type DirectorySnapshot } from "./directory-sync";
 import { matchPayrollPreview } from "./payroll-matching";
+import { createEmptyStoreState, purgeLegacyTestData } from "./store-state";
 import { createApiKey, createId, sha256 } from "./utils";
 
 const LOCAL_STATE_PATH = process.env.LOCAL_DATA_PATH
   ? path.resolve(process.env.LOCAL_DATA_PATH)
   : path.join(process.cwd(), ".data", "auto-cost.json");
-
-function createSeedState(): StoreState {
-  const now = new Date().toISOString();
-  const departments = ["研发中心", "研发中心", "销售中心", "销售中心", "财务部", "生产运营部", "生产运营部", "人力行政部"];
-  const employees = departments.map((department, index) => ({
-    id: `emp_demo_${String(index + 1).padStart(2, "0")}`,
-    dingtalkUserId: `ding_demo_${String(index + 1).padStart(2, "0")}`,
-    employeeNo: `D${String(index + 1).padStart(4, "0")}`,
-    name: `演示员工${String(index + 1).padStart(2, "0")}`,
-    department,
-    status: "active" as const,
-    source: "demo" as const,
-    lastSyncedAt: now,
-  }));
-  const periods = [
-    "2025-08", "2025-09", "2025-10", "2025-11", "2025-12", "2026-01",
-    "2026-02", "2026-03", "2026-04", "2026-05", "2026-06", "2026-07",
-  ];
-  const monthlyCosts: MonthlyCost[] = [];
-  periods.forEach((period, periodIndex) => {
-    employees.forEach((employee, employeeIndex) => {
-      const base = 15_000 + employeeIndex * 2_350;
-      const trend = periodIndex * 140;
-      const seasonal = periodIndex === 4 ? 3_500 : 0;
-      monthlyCosts.push({
-        employeeId: employee.id,
-        employeeNameSnapshot: employee.name,
-        departmentSnapshot: employee.department,
-        period,
-        amountCents: (base + trend + seasonal) * 100,
-        version: 1,
-        updatedBy: "system",
-        updatedAt: now,
-      });
-    });
-  });
-  return {
-    schemaVersion: 1,
-    employees,
-    monthlyCosts,
-    imports: [],
-    apiClients: [],
-    queryLogs: [],
-    auditEvents: [],
-  };
-}
 
 function cloneState(state: StoreState): StoreState {
   return structuredClone(state);
@@ -72,10 +26,12 @@ function cloneState(state: StoreState): StoreState {
 async function readLocalState(): Promise<StoreState> {
   try {
     const content = await fs.readFile(LOCAL_STATE_PATH, "utf8");
-    return JSON.parse(content) as StoreState;
+    const result = purgeLegacyTestData(JSON.parse(content) as StoreState);
+    if (result.changed) await writeLocalState(result.state);
+    return result.state;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    const seed = createSeedState();
+    const seed = createEmptyStoreState();
     await fs.mkdir(path.dirname(LOCAL_STATE_PATH), { recursive: true });
     await fs.writeFile(LOCAL_STATE_PATH, JSON.stringify(seed, null, 2));
     return seed;
@@ -112,7 +68,7 @@ async function ensureNeon() {
           updated_at timestamptz NOT NULL DEFAULT now()
         )
       `;
-      const seed = JSON.stringify(createSeedState());
+      const seed = JSON.stringify(createEmptyStoreState());
       await sql`
         INSERT INTO auto_cost_state (id, version, payload)
         VALUES ('primary', 1, ${seed}::jsonb)
@@ -138,13 +94,28 @@ function shouldUseNeon() {
 async function readNeonState() {
   await ensureNeon();
   const sql = getSql();
-  const rows = (await sql`SELECT version, payload FROM auto_cost_state WHERE id = 'primary'`) as unknown as Array<{
-    version: number;
-    payload: StoreState;
-  }>;
-  const row = rows[0];
-  if (!row) throw new Error("无法读取生产数据仓库。");
-  return { version: Number(row.version), state: row.payload };
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const rows = (await sql`SELECT version, payload FROM auto_cost_state WHERE id = 'primary'`) as unknown as Array<{
+      version: number;
+      payload: StoreState;
+    }>;
+    const row = rows[0];
+    if (!row) throw new Error("无法读取生产数据仓库。");
+    const version = Number(row.version);
+    const result = purgeLegacyTestData(row.payload);
+    if (!result.changed) return { version, state: result.state };
+    const payload = JSON.stringify(result.state);
+    const updated = (await sql`
+      UPDATE auto_cost_state
+      SET payload = ${payload}::jsonb, version = version + 1, updated_at = now()
+      WHERE id = 'primary' AND version = ${version}
+      RETURNING version
+    `) as unknown as Array<{ version: number }>;
+    if (updated.length === 1) {
+      return { version: Number(updated[0].version), state: result.state };
+    }
+  }
+  throw new Error("清理历史演示数据时发生并发冲突，请重试。");
 }
 
 let localMutationQueue = Promise.resolve();
@@ -286,7 +257,6 @@ export async function commitPayrollImport(
       createdEmployees: 0,
       updatedCosts,
       sampleEmployeeIds: importedEmployeeIds.slice(0, 2),
-      removedDemoEmployees: 0,
     };
   });
 }
@@ -324,26 +294,6 @@ export async function updateMonthlyCost(input: {
       }),
     );
     return cost;
-  });
-}
-
-export async function syncDemoDirectory(actor: string, sourceIp: string) {
-  return mutateStore((draft) => {
-    const now = new Date().toISOString();
-    draft.employees.forEach((employee) => {
-      employee.lastSyncedAt = now;
-    });
-    draft.auditEvents.unshift(
-      createAuditEvent({
-        actor,
-        action: "directory.sync",
-        objectType: "employee_directory",
-        objectId: "demo",
-        summary: `完成演示通讯录同步，共 ${draft.employees.length} 名人员。`,
-        sourceIp,
-      }),
-    );
-    return { count: draft.employees.length, syncedAt: now };
   });
 }
 

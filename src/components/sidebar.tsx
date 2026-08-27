@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
-  Activity,
   BookOpenCheck,
   ChevronRight,
   Database,
@@ -45,7 +44,6 @@ export function Sidebar({ username }: { username: string }) {
           <div><strong>Auto Cost</strong><span>人力成本中心</span></div>
           <button className="sidebar-close" type="button" onClick={() => setOpen(false)} aria-label="关闭导航"><X size={19} /></button>
         </div>
-        <div className="environment-chip"><Activity size={14} /><span>环境测试</span></div>
         <nav className="sidebar-nav" aria-label="主导航">
           <span className="nav-section-label">工作台</span>
           {navItems.map((item) => {

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHmac } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import * as XLSX from "xlsx";
@@ -8,6 +9,8 @@ const payrollPath = process.env.PAYROLL_TEST_FILE;
 if (!payrollPath) throw new Error("PAYROLL_TEST_FILE is required");
 const statePath = process.env.ACCEPTANCE_STATE_PATH;
 if (!statePath) throw new Error("ACCEPTANCE_STATE_PATH is required");
+const authSecret = process.env.ACCEPTANCE_AUTH_SECRET;
+if (!authSecret) throw new Error("ACCEPTANCE_AUTH_SECRET is required");
 
 let cookie = "";
 const checks = [];
@@ -28,12 +31,25 @@ async function json(response) {
   return response.json();
 }
 
+function createSessionCookie(provider = "dingtalk") {
+  const session = {
+    username: "端到端验收财务",
+    provider,
+    dingtalkUserId: "ding-e2e-finance",
+    exp: Math.floor(Date.now() / 1000) + 60 * 60,
+  };
+  const payload = Buffer.from(JSON.stringify(session)).toString("base64url");
+  const signature = createHmac("sha256", authSecret).update(payload).digest("base64url");
+  return `auto_cost_session=${payload}.${signature}`;
+}
+
 await checked("login page exposes DingTalk with a safe unconfigured state", async () => {
   const response = await appFetch("/login");
   const html = await response.text();
   assert.equal(response.status, 200);
   assert.match(html, /钉钉扫码登录待配置/);
   assert.doesNotMatch(html, /DINGTALK_CLIENT_SECRET|clientSecret/);
+  assert.doesNotMatch(html, /测试账号|环境测试|admin123|用户名|密码/);
 });
 
 await checked("unconfigured DingTalk entry redirects to a safe login error", async () => {
@@ -48,13 +64,13 @@ await checked("DingTalk callback rejects a missing OAuth state", async () => {
   assert.match(response.headers.get("location") ?? "", /\/login\?error=dingtalk_state_invalid$/);
 });
 
-await checked("login rejects wrong password", async () => {
+await checked("fixed credential login endpoint is removed", async () => {
   const response = await appFetch("/api/auth/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username: "admin", password: "wrong" }),
+    body: JSON.stringify({ username: "admin", password: "admin123" }),
   });
-  assert.equal(response.status, 401);
+  assert.equal(response.status, 404);
 });
 
 await checked("protected pages redirect before login", async () => {
@@ -63,16 +79,15 @@ await checked("protected pages redirect before login", async () => {
   assert.equal(response.headers.get("location"), "/login");
 });
 
-await checked("login succeeds with fixed test account", async () => {
-  const response = await appFetch("/api/auth/login", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username: "admin", password: "admin123" }),
-  });
-  assert.equal(response.status, 200);
-  cookie = response.headers.getSetCookie()[0].split(";")[0];
-  assert.match(cookie, /^auto_cost_session=/);
+await checked("legacy credential sessions cannot access protected pages", async () => {
+  cookie = createSessionCookie("credentials");
+  const response = await appFetch("/dashboard");
+  assert.equal(response.status, 307);
+  assert.equal(response.headers.get("location"), "/login");
+  cookie = "";
 });
+
+cookie = createSessionCookie();
 
 for (const [route, text] of [
   ["/dashboard", "人力成本仪表盘"],
@@ -87,15 +102,15 @@ for (const [route, text] of [
     const html = await response.text();
     assert.match(html, new RegExp(text));
     if (route === "/people") assert.match(html, /下载工资模板/);
+    assert.doesNotMatch(html, /环境测试|演示员工|测试账号|admin123/);
   });
 }
 
-await checked("successful and failed login attempts are audited without passwords", async () => {
+await checked("rejected DingTalk callbacks are audited without credentials", async () => {
   const response = await appFetch("/audit");
   const html = await response.text();
-  assert.match(html, /固定账号登录失败/);
-  assert.match(html, /固定账号登录成功/);
-  assert.doesNotMatch(html, /admin123|wrong/);
+  assert.match(html, /钉钉登录状态校验失败/);
+  assert.doesNotMatch(html, /admin123|untrusted-code/);
 });
 
 const workbookBytes = await fs.readFile(payrollPath);
@@ -201,7 +216,6 @@ await checked("system template commits without retaining source file", async () 
   assert.equal(response.status, 200);
   assert.equal(body.result.updatedCosts, 8);
   assert.equal(body.result.createdEmployees, 0);
-  assert.equal(body.result.removedDemoEmployees, 0);
   assert.equal(body.result.sampleEmployeeIds.length, 2);
   queryEmployeeIds = body.result.sampleEmployeeIds;
   const persisted = JSON.parse(await fs.readFile(statePath, "utf8"));
@@ -284,19 +298,19 @@ async function queryCost(key, items) {
 
 await checked("single-person and duplicate-person queries are rejected", async () => {
   const single = await queryCost(primaryClient.key, [
-    { employeeId: queryEmployeeIds[0], from: "2026-07-01", to: "2026-07-31" },
+    { employeeId: queryEmployeeIds[0], from: "2026-08-01", to: "2026-08-27" },
   ]);
   assert.equal(single.body.errorCode, "MIN_PARTICIPANTS");
   const duplicate = await queryCost(primaryClient.key, [
-    { employeeId: queryEmployeeIds[0], from: "2026-07-01", to: "2026-07-31" },
-    { employeeId: queryEmployeeIds[0], from: "2026-07-01", to: "2026-07-31" },
+    { employeeId: queryEmployeeIds[0], from: "2026-08-01", to: "2026-08-27" },
+    { employeeId: queryEmployeeIds[0], from: "2026-08-01", to: "2026-08-27" },
   ]);
   assert.equal(duplicate.body.errorCode, "DUPLICATE_EMPLOYEE");
 });
 
 const validItems = [
-  { employeeId: queryEmployeeIds[0], from: "2026-07-01", to: "2026-07-31" },
-  { employeeId: queryEmployeeIds[1], from: "2026-07-01", to: "2026-07-31" },
+  { employeeId: queryEmployeeIds[0], from: "2026-08-01", to: "2026-08-27" },
+  { employeeId: queryEmployeeIds[1], from: "2026-08-01", to: "2026-08-27" },
 ];
 
 await checked("valid query returns aggregate only", async () => {
@@ -312,7 +326,7 @@ await checked("valid query returns aggregate only", async () => {
 });
 
 await checked("near-identical differencing query is blocked", async () => {
-  const changed = [validItems[0], { ...validItems[1], to: "2026-07-30" }];
+  const changed = [validItems[0], { ...validItems[1], to: "2026-08-26" }];
   const { body } = await queryCost(primaryClient.key, changed);
   assert.equal(body.errorCode, "DIFFERENCING_RISK");
 });
@@ -320,8 +334,8 @@ await checked("near-identical differencing query is blocked", async () => {
 const contributionClient = await createClient("贡献门槛验收系统");
 await checked("low-contribution padding is blocked", async () => {
   const { body } = await queryCost(contributionClient.key, [
-    { employeeId: queryEmployeeIds[0], from: "2026-07-01", to: "2026-07-01" },
-    { employeeId: queryEmployeeIds[1], from: "2026-07-01", to: "2026-07-31" },
+    { employeeId: queryEmployeeIds[0], from: "2026-08-01", to: "2026-08-01" },
+    { employeeId: queryEmployeeIds[1], from: "2026-08-01", to: "2026-08-27" },
   ]);
   assert.equal(body.errorCode, "CONTRIBUTION_TOO_LOW");
 });

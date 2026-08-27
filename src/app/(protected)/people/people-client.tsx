@@ -60,7 +60,7 @@ export function PeopleClient({
         {directoryConfigured ? <RefreshCw size={17} /> : <CloudOff size={17} />}
         <span>
           <strong>{directoryConfigured ? "钉钉通讯录已配置。" : "钉钉通讯录凭证尚未配置完整。"}</strong>{" "}
-          同步会读取应用可见范围内的部门和成员，不读取手机号；首次真实同步会清除演示人员。
+          同步会读取应用可见范围内的部门和成员，不读取手机号；未出现在同步结果中的历史人员仅标记为离职。
         </span>
       </div>
       <div className="toolbar">
@@ -74,7 +74,7 @@ export function PeopleClient({
         <div className="table-wrap" style={{ maxHeight: 650 }}>
           <table className="data-table" aria-label="公司人员目录">
             <thead><tr><th>姓名</th><th>人员 ID</th><th>工号</th><th>部门</th><th>状态</th><th>来源</th><th>最后同步</th></tr></thead>
-            <tbody>{filtered.map((employee) => <tr key={employee.id}><td><span className="table-primary">{employee.name}</span></td><td><code>{employee.id}</code></td><td>{employee.employeeNo ?? "—"}</td><td>{employee.department}</td><td><span className={`status-pill ${employee.status === "active" ? "status-success" : "status-neutral"}`}>{employee.status === "active" ? "在职" : "离职"}</span></td><td><span className="status-pill status-neutral">{employee.source === "demo" ? "演示" : employee.source === "excel" ? "Excel" : "钉钉"}</span></td><td>{dateFormatter.format(new Date(employee.lastSyncedAt))}</td></tr>)}</tbody>
+            <tbody>{filtered.map((employee) => <tr key={employee.id}><td><span className="table-primary">{employee.name}</span></td><td><code>{employee.id}</code></td><td>{employee.employeeNo ?? "—"}</td><td>{employee.department}</td><td><span className={`status-pill ${employee.status === "active" ? "status-success" : "status-neutral"}`}>{employee.status === "active" ? "在职" : "离职"}</span></td><td><span className="status-pill status-neutral">{employee.source === "excel" ? "Excel" : "钉钉"}</span></td><td>{dateFormatter.format(new Date(employee.lastSyncedAt))}</td></tr>)}</tbody>
           </table>
         </div>
       </section>

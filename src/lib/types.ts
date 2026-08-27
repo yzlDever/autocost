@@ -1,5 +1,5 @@
 export type EmployeeStatus = "active" | "inactive";
-export type EmployeeSource = "dingtalk" | "excel" | "demo";
+export type EmployeeSource = "dingtalk" | "excel";
 
 export type Employee = {
   id: string;

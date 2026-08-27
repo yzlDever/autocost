@@ -68,7 +68,7 @@ export default async function DashboardPage() {
         <ArrowUpRight size={17} />
         <span>{state.imports.length
           ? `当前展示已导入的 ${latestPeriod ?? "最新"} 工资数据；所有金额仅对财务登录态开放。`
-          : "当前为环境测试版本，展示脱敏演示数据；导入工资表后将自动替换演示人员和成本。"}</span>
+          : "暂无工资数据；请先在人员管理同步钉钉通讯录，再下载工资模板并导入。"}</span>
       </div>
       <section className="kpi-grid" aria-label="核心指标">
         {cards.map((card) => {
