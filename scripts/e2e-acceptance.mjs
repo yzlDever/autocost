@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import path from "node:path";
+import * as XLSX from "xlsx";
 
 const baseUrl = process.env.BASE_URL ?? "http://127.0.0.1:3000";
 const payrollPath = process.env.PAYROLL_TEST_FILE;
@@ -98,6 +99,45 @@ await checked("reference workbook previews 158 valid rows", async () => {
   assert.equal(body.preview.period, "2026-07");
   assert.equal(body.preview.validRows, 158);
   assert.equal(body.preview.errorRows, 0);
+});
+
+const invalidWorkbook = XLSX.utils.book_new();
+XLSX.utils.book_append_sheet(
+  invalidWorkbook,
+  XLSX.utils.aoa_to_sheet([
+    ["期间", "姓名", "部门", "工号", "公司人力总成本"],
+    [null, null, null, null, null],
+    [202607, "测试甲", "财务部", "T001", 10000],
+    [202608, "测试乙", "财务部", "T002", 12000],
+    [202607, "测试甲", "财务部", "T003", 13000],
+    [202607, "测试丙", "财务部", "T004", "#VALUE!"],
+    [202607, "测试丁", "财务部", "T005", null],
+  ]),
+  "测试工资",
+);
+const invalidWorkbookBytes = XLSX.write(invalidWorkbook, { type: "buffer", bookType: "xlsx" });
+const createInvalidPayrollForm = () => {
+  const form = new FormData();
+  form.set("file", new File([invalidWorkbookBytes], "invalid-payroll.xlsx"));
+  return form;
+};
+
+await checked("invalid, duplicate and mixed-period payroll rows cannot commit", async () => {
+  const previewResponse = await appFetch("/api/payroll/import?mode=preview", {
+    method: "POST",
+    body: createInvalidPayrollForm(),
+  });
+  const previewBody = await json(previewResponse);
+  assert.equal(previewResponse.status, 200);
+  assert.equal(previewBody.preview.errorRows, 4);
+  assert.match(JSON.stringify(previewBody.preview.errors), /姓名重复/);
+  assert.match(JSON.stringify(previewBody.preview.errors), /有效数值/);
+  assert.match(JSON.stringify(previewBody.preview.errors), /只能包含一个工资期间/);
+  const commitResponse = await appFetch("/api/payroll/import?mode=commit", {
+    method: "POST",
+    body: createInvalidPayrollForm(),
+  });
+  assert.equal(commitResponse.status, 422);
 });
 
 await checked("reference workbook commits without retaining source file", async () => {
