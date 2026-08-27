@@ -65,10 +65,20 @@ V1 是环境测试版本：使用固定账号登录，完成工资 Excel 导入�
 - 使用企业内部应用 OAuth 2.0 网页授权，授权入口为 `/api/auth/dingtalk`，回调为 `/api/auth/dingtalk/callback`。
 - OAuth `state` 使用 256 位随机数并通过 HttpOnly、SameSite=Lax、10 分钟有效期 Cookie 绑定，回调后立即清除，防止登录 CSRF 与重放。
 - 服务端以授权码换取用户访问凭证，读取 `unionId`，再通过企业应用凭证换取组织 AccessToken，并将 `unionId` 映射为企业 `userId`。
-- 登录采用双重权限控制：钉钉应用“可使用范围”仅配置财务人员；系统端 `DINGTALK_ALLOWED_USER_IDS` 再次校验。
-- 需要钉钉“成员信息读权限”；不申请手机号权限，不读取手机号。
+- 登录采用双重权限控制：钉钉应用权限范围控制可读取的组织数据；系统端 `DINGTALK_ALLOWED_USER_IDS` 单独限制可登录的财务人员。
+- 扫码登录需要 `Contact.User.Read` 和 unionId 到企业 userId 的成员读取权限；不申请手机号权限，不读取手机号。
 - 钉钉身份会写入现有 8 小时签名会话 Cookie，Cookie 中仅保存姓名、认证来源和钉钉 `userId`，不保存钉钉 AccessToken。
 - 固定账号在本地环境继续作为故障回退；正式开放前必须更换或移除。
+
+### 5.3 钉钉通讯录同步
+
+- 使用应用 AccessToken 调用 `topapi/v2/department/listsub`，从根部门开始递归读取部门树。
+- 对每个部门调用 `topapi/v2/user/list`，每页最多 100 人并按游标读取完整结果，按钉钉 userId 去重。
+- 需要 `qyapi_get_department_list` 和 `qyapi_get_department_member` 两项应用权限；同步范围以钉钉后台配置的通讯录权限范围为准。
+- 人员关联顺序为：钉钉 userId、唯一工号、唯一姓名。关联后保留系统人员 ID，避免工资历史断链。
+- 本次结果中缺失的既有钉钉人员标记为 `inactive`，不物理删除人员或工资历史。
+- 首次获得非空真实通讯录后清除演示人员及其演示成本；不影响 Excel 导入或真实工资历史。
+- 每次成功或失败同步都写入审计日志，不记录 AccessToken、Client Secret 或手机号。
 
 ## 6. 数据实体
 
@@ -251,7 +261,7 @@ DINGTALK_ALLOWED_USER_IDS= # 财务人员钉钉 userId，英文逗号分隔
 
 V1 不包含：
 
-- 钉钉通讯录全量自动同步（当前只接入真实扫码登录及成员身份映射）。
+- 钉钉通讯录定时自动同步（当前为财务人员手动触发真实全量同步）。
 - 多角色细分和审批流。
 - 原始 Excel 长期归档。
 - 差分隐私噪声算法。

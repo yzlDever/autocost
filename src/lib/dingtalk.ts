@@ -1,5 +1,7 @@
 import "server-only";
 
+import type { DirectoryPerson, DirectorySnapshot } from "./directory-sync";
+
 const DINGTALK_AUTHORIZE_URL = "https://login.dingtalk.com/oauth2/auth";
 const DINGTALK_API_URL = "https://api.dingtalk.com";
 const DINGTALK_LEGACY_API_URL = "https://oapi.dingtalk.com";
@@ -12,6 +14,8 @@ type DingTalkConfig = {
   corpId: string | null;
   allowedUserIds: Set<string>;
 };
+
+type DingTalkAppConfig = Pick<DingTalkConfig, "clientId" | "clientSecret">;
 
 type DingTalkUserToken = {
   accessToken: string;
@@ -44,6 +48,21 @@ export class DingTalkAuthError extends Error {
   }
 }
 
+export type DingTalkDirectoryErrorCode =
+  | "DINGTALK_DIRECTORY_NOT_CONFIGURED"
+  | "DINGTALK_DIRECTORY_PERMISSION_DENIED"
+  | "DINGTALK_DIRECTORY_UPSTREAM_ERROR";
+
+export class DingTalkDirectoryError extends Error {
+  constructor(
+    public readonly code: DingTalkDirectoryErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = "DingTalkDirectoryError";
+  }
+}
+
 function parseAllowedUserIds(value: string | undefined) {
   return new Set(
     (value ?? "")
@@ -60,6 +79,25 @@ export function isDingTalkAuthConfigured() {
     process.env.DINGTALK_REDIRECT_URI?.trim() &&
     parseAllowedUserIds(process.env.DINGTALK_ALLOWED_USER_IDS).size > 0,
   );
+}
+
+export function isDingTalkDirectoryConfigured() {
+  return Boolean(
+    process.env.DINGTALK_CLIENT_ID?.trim() &&
+    process.env.DINGTALK_CLIENT_SECRET?.trim(),
+  );
+}
+
+function getDingTalkAppConfig(): DingTalkAppConfig {
+  const clientId = process.env.DINGTALK_CLIENT_ID?.trim();
+  const clientSecret = process.env.DINGTALK_CLIENT_SECRET?.trim();
+  if (!clientId || !clientSecret) {
+    throw new DingTalkDirectoryError(
+      "DINGTALK_DIRECTORY_NOT_CONFIGURED",
+      "钉钉通讯录尚未配置完整的 Client ID 和 Client Secret。",
+    );
+  }
+  return { clientId, clientSecret };
 }
 
 export function getDingTalkConfig(): DingTalkConfig {
@@ -166,7 +204,7 @@ async function getCurrentUser(userAccessToken: string): Promise<DingTalkCurrentU
   return { unionId, nick: String(result.nick ?? "钉钉用户") };
 }
 
-async function getOrganizationAccessToken(config: DingTalkConfig) {
+async function getOrganizationAccessToken(config: DingTalkAppConfig) {
   const result = await postJson(`${DINGTALK_API_URL}/v1.0/oauth2/accessToken`, {
     appKey: config.clientId,
     appSecret: config.clientSecret,
@@ -176,6 +214,163 @@ async function getOrganizationAccessToken(config: DingTalkConfig) {
     throw new DingTalkAuthError("DINGTALK_UPSTREAM_ERROR", "钉钉未返回有效的应用凭证。");
   }
   return accessToken;
+}
+
+function isPermissionError(result: Record<string, unknown>) {
+  const message = `${result.errmsg ?? ""} ${result.message ?? ""}`.toLowerCase();
+  return message.includes("permission") || message.includes("accessdenied") || message.includes("权限");
+}
+
+async function callDirectoryApi(
+  accessToken: string,
+  path: string,
+  body: Record<string, unknown>,
+) {
+  const url = new URL(`${DINGTALK_LEGACY_API_URL}${path}`);
+  url.searchParams.set("access_token", accessToken);
+  let result: Record<string, unknown>;
+  try {
+    result = await postJson(url.toString(), body);
+  } catch (error) {
+    if (error instanceof DingTalkAuthError) {
+      throw new DingTalkDirectoryError(
+        "DINGTALK_DIRECTORY_UPSTREAM_ERROR",
+        "无法连接钉钉通讯录服务。",
+      );
+    }
+    throw error;
+  }
+  const errcode = Number(result.errcode ?? -1);
+  if (errcode !== 0) {
+    if (isPermissionError(result)) {
+      throw new DingTalkDirectoryError(
+        "DINGTALK_DIRECTORY_PERMISSION_DENIED",
+        "钉钉应用缺少部门列表或部门成员读取权限。",
+      );
+    }
+    throw new DingTalkDirectoryError(
+      "DINGTALK_DIRECTORY_UPSTREAM_ERROR",
+      `钉钉通讯录接口调用失败（错误码 ${Number.isFinite(errcode) ? errcode : "未知"}）。`,
+    );
+  }
+  return result.result;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" ? value as Record<string, unknown> : {};
+}
+
+function asRecordArray(value: unknown) {
+  return Array.isArray(value) ? value.map(asRecord) : [];
+}
+
+function asNumberArray(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => Number(item))
+    .filter((item) => Number.isFinite(item));
+}
+
+async function getDepartments(accessToken: string) {
+  const departments = new Map<number, string>([[1, "全公司"]]);
+  const queue = [1];
+  const visited = new Set<number>();
+
+  while (queue.length > 0) {
+    const departmentId = queue.shift();
+    if (departmentId === undefined || visited.has(departmentId)) continue;
+    visited.add(departmentId);
+    if (visited.size > 10_000) {
+      throw new DingTalkDirectoryError(
+        "DINGTALK_DIRECTORY_UPSTREAM_ERROR",
+        "钉钉返回的部门数量超过安全限制。",
+      );
+    }
+    const result = await callDirectoryApi(
+      accessToken,
+      "/topapi/v2/department/listsub",
+      { dept_id: departmentId, language: "zh_CN" },
+    );
+    asRecordArray(result).forEach((department) => {
+      const id = Number(department.dept_id);
+      const name = String(department.name ?? "").trim();
+      if (!Number.isFinite(id) || !name || departments.has(id)) return;
+      departments.set(id, name);
+      queue.push(id);
+    });
+  }
+  return departments;
+}
+
+async function getDepartmentPeople(accessToken: string, departmentId: number) {
+  const people: DirectoryPerson[] = [];
+  let cursor = 0;
+  const seenCursors = new Set<number>();
+
+  while (!seenCursors.has(cursor)) {
+    seenCursors.add(cursor);
+    const result = asRecord(await callDirectoryApi(
+      accessToken,
+      "/topapi/v2/user/list",
+      { dept_id: departmentId, cursor, size: 100, language: "zh_CN" },
+    ));
+    asRecordArray(result.list).forEach((user) => {
+      people.push({
+        userId: String(user.userid ?? "").trim(),
+        name: String(user.name ?? "").trim(),
+        employeeNo: String(user.job_number ?? "").trim() || null,
+        departmentIds: asNumberArray(user.dept_id_list),
+      });
+    });
+    if (!result.has_more) break;
+    const nextCursor = Number(result.next_cursor);
+    if (!Number.isFinite(nextCursor)) {
+      throw new DingTalkDirectoryError(
+        "DINGTALK_DIRECTORY_UPSTREAM_ERROR",
+        "钉钉通讯录分页信息无效。",
+      );
+    }
+    if (nextCursor === cursor) {
+      throw new DingTalkDirectoryError(
+        "DINGTALK_DIRECTORY_UPSTREAM_ERROR",
+        "钉钉通讯录分页游标没有继续前进。",
+      );
+    }
+    cursor = nextCursor;
+  }
+  return people;
+}
+
+export async function fetchDingTalkDirectory(): Promise<DirectorySnapshot> {
+  const config = getDingTalkAppConfig();
+  let accessToken: string;
+  try {
+    accessToken = await getOrganizationAccessToken(config);
+  } catch (error) {
+    if (error instanceof DingTalkAuthError) {
+      throw new DingTalkDirectoryError(
+        "DINGTALK_DIRECTORY_UPSTREAM_ERROR",
+        "钉钉应用凭证无效或访问凭证获取失败。",
+      );
+    }
+    throw error;
+  }
+  const departments = await getDepartments(accessToken);
+  const peopleByUserId = new Map<string, DirectoryPerson>();
+  for (const departmentId of departments.keys()) {
+    const departmentPeople = await getDepartmentPeople(accessToken, departmentId);
+    departmentPeople.forEach((person) => {
+      if (!person.userId || !person.name) return;
+      const existing = peopleByUserId.get(person.userId);
+      if (existing) {
+        existing.departmentIds = [...new Set([...existing.departmentIds, ...person.departmentIds])];
+        existing.employeeNo ||= person.employeeNo;
+      } else {
+        peopleByUserId.set(person.userId, person);
+      }
+    });
+  }
+  return { people: [...peopleByUserId.values()], departments };
 }
 
 async function getOrganizationUserId(accessToken: string, unionId: string) {

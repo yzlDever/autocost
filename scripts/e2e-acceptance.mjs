@@ -288,9 +288,12 @@ await checked("disabled key becomes unauthorized", async () => {
   assert.equal(disabled.body.errorCode, "UNAUTHORIZED");
 });
 
-await checked("directory sync and query logs render", async () => {
+await checked("unconfigured directory sync is safe and query logs render", async () => {
   const sync = await appFetch("/api/people/sync", { method: "POST" });
-  assert.equal(sync.status, 200);
+  assert.equal(sync.status, 503);
+  const syncBody = await sync.json();
+  assert.equal(syncBody.success, false);
+  assert.match(syncBody.message, /Client ID 和 Client Secret/);
   const logsPage = await appFetch("/integrations");
   const html = await logsPage.text();
   assert.match(html, /DIFFERENCING_RISK/);

@@ -11,6 +11,7 @@ import type {
   QueryLog,
   StoreState,
 } from "./types";
+import { applyDingTalkDirectorySnapshot, type DirectorySnapshot } from "./directory-sync";
 import { createApiKey, createId, sha256 } from "./utils";
 
 const LOCAL_STATE_PATH = process.env.LOCAL_DATA_PATH
@@ -359,6 +360,27 @@ export async function syncDemoDirectory(actor: string, sourceIp: string) {
       }),
     );
     return { count: draft.employees.length, syncedAt: now };
+  });
+}
+
+export async function syncDingTalkDirectory(
+  snapshot: DirectorySnapshot,
+  actor: string,
+  sourceIp: string,
+) {
+  return mutateStore((draft) => {
+    const result = applyDingTalkDirectorySnapshot(draft, snapshot, new Date().toISOString());
+    draft.auditEvents.unshift(
+      createAuditEvent({
+        actor,
+        action: "directory.sync",
+        objectType: "employee_directory",
+        objectId: "dingtalk",
+        summary: `完成钉钉通讯录同步，共 ${result.count} 名人员；新增 ${result.created} 名，关联 ${result.linked} 名，停用 ${result.inactivated} 名。`,
+        sourceIp,
+      }),
+    );
+    return result;
   });
 }
 

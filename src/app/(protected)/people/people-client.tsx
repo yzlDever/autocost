@@ -9,7 +9,22 @@ const dateFormatter = new Intl.DateTimeFormat("zh-CN", {
   timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false,
 });
 
-export function PeopleClient({ employees }: { employees: Employee[] }) {
+type SyncResult = {
+  count: number;
+  created: number;
+  linked: number;
+  updated: number;
+  inactivated: number;
+  departmentCount: number;
+};
+
+export function PeopleClient({
+  employees,
+  directoryConfigured,
+}: {
+  employees: Employee[];
+  directoryConfigured: boolean;
+}) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [syncing, setSyncing] = useState(false);
@@ -24,9 +39,13 @@ export function PeopleClient({ employees }: { employees: Employee[] }) {
     setMessage("");
     try {
       const response = await fetch("/api/people/sync", { method: "POST" });
-      const result = (await response.json()) as { success: boolean; result?: { count: number }; message?: string };
+      const result = (await response.json()) as { success: boolean; result?: SyncResult; message?: string };
       if (!response.ok) throw new Error(result.message ?? "同步失败。");
-      setMessage(`演示同步完成，共更新 ${result.result?.count ?? 0} 名人员。`);
+      const synced = result.result;
+      setMessage(
+        `钉钉同步完成：${synced?.departmentCount ?? 0} 个部门、${synced?.count ?? 0} 名人员；` +
+        `新增 ${synced?.created ?? 0} 名，关联工资人员 ${synced?.linked ?? 0} 名，停用 ${synced?.inactivated ?? 0} 名。`,
+      );
       router.refresh();
     } catch (cause) {
       setMessage(cause instanceof Error ? cause.message : "同步失败。");
@@ -37,7 +56,13 @@ export function PeopleClient({ employees }: { employees: Employee[] }) {
 
   return (
     <>
-      <div className="notice notice-warning" style={{ marginBottom: 14 }}><CloudOff size={17} /><span><strong>钉钉真实同步尚未配置。</strong> 当前按钮执行演示同步并验证审计链路；提供企业内部应用凭据后可切换为真实通讯录。</span></div>
+      <div className={`notice ${directoryConfigured ? "" : "notice-warning"}`} style={{ marginBottom: 14 }}>
+        {directoryConfigured ? <RefreshCw size={17} /> : <CloudOff size={17} />}
+        <span>
+          <strong>{directoryConfigured ? "钉钉通讯录已配置。" : "钉钉通讯录凭证尚未配置完整。"}</strong>{" "}
+          同步会读取应用可见范围内的部门和成员，不读取手机号；首次真实同步会清除演示人员。
+        </span>
+      </div>
       <div className="toolbar">
         <div className="search-box"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索姓名、工号、部门或人员 ID" aria-label="搜索人员" /></div>
         <span className="metric-chip"><UsersRound size={12} style={{ verticalAlign: -2, marginRight: 4 }} />{filtered.length} 名人员</span>
