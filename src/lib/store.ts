@@ -12,6 +12,7 @@ import type {
   StoreState,
 } from "./types";
 import { applyDingTalkDirectorySnapshot, type DirectorySnapshot } from "./directory-sync";
+import { matchPayrollPreview } from "./payroll-matching";
 import { createApiKey, createId, sha256 } from "./utils";
 
 const LOCAL_STATE_PATH = process.env.LOCAL_DATA_PATH
@@ -222,33 +223,16 @@ export async function commitPayrollImport(
     if (draft.imports.some((item) => item.sha256 === preview.sha256 && item.status === "committed")) {
       throw new Error("该 Excel 文件已经导入过，不能重复提交。");
     }
-    const now = new Date().toISOString();
-    const demoEmployeeIds = new Set(
-      draft.employees.filter((employee) => employee.source === "demo").map((employee) => employee.id),
-    );
-    if (demoEmployeeIds.size > 0 && draft.imports.length === 0) {
-      draft.employees = draft.employees.filter((employee) => !demoEmployeeIds.has(employee.id));
-      draft.monthlyCosts = draft.monthlyCosts.filter((cost) => !demoEmployeeIds.has(cost.employeeId));
+    const resolved = matchPayrollPreview(preview, draft.employees);
+    if (resolved.errors.length > 0) {
+      throw new Error(resolved.errors[0]?.message ?? "工资表人员匹配失败，请重新下载系统模板。");
     }
-    let createdEmployees = 0;
+    const now = new Date().toISOString();
     let updatedCosts = 0;
     const importedEmployeeIds: string[] = [];
-    preview.rows.forEach((row) => {
-      let employee = draft.employees.find((item) => item.name === row.name);
-      if (!employee) {
-        employee = {
-          id: createId("emp"),
-          dingtalkUserId: null,
-          employeeNo: row.employeeNo,
-          name: row.name,
-          department: row.department,
-          status: "active",
-          source: "excel",
-          lastSyncedAt: now,
-        };
-        draft.employees.push(employee);
-        createdEmployees += 1;
-      }
+    resolved.rows.forEach((row) => {
+      const employee = draft.employees.find((item) => item.id === row.employeeId);
+      if (!employee) throw new Error("工资表包含已不存在的人员，请重新下载系统模板。");
       importedEmployeeIds.push(employee.id);
       const existing = draft.monthlyCosts.find(
         (item) => item.employeeId === employee.id && item.period === row.period,
@@ -277,12 +261,12 @@ export async function commitPayrollImport(
     const importId = createId("import");
     draft.imports.unshift({
       id: importId,
-      fileName: preview.fileName,
-      sha256: preview.sha256,
+      fileName: resolved.fileName,
+      sha256: resolved.sha256,
       period,
-      totalRows: preview.totalRows,
-      validRows: preview.validRows,
-      errorRows: preview.errorRows,
+      totalRows: resolved.totalRows,
+      validRows: resolved.validRows,
+      errorRows: resolved.errorRows,
       status: "committed",
       actor,
       createdAt: now,
@@ -293,16 +277,16 @@ export async function commitPayrollImport(
         action: "payroll.import",
         objectType: "payroll_import",
         objectId: importId,
-        summary: `导入 ${preview.period} 工资：${updatedCosts} 条，新增人员 ${createdEmployees} 名。`,
+        summary: `导入 ${resolved.period} 工资：${updatedCosts} 条，全部按稳定人员 ID 关联。`,
         sourceIp,
       }),
     );
     return {
       importId,
-      createdEmployees,
+      createdEmployees: 0,
       updatedCosts,
       sampleEmployeeIds: importedEmployeeIds.slice(0, 2),
-      removedDemoEmployees: demoEmployeeIds.size,
+      removedDemoEmployees: 0,
     };
   });
 }

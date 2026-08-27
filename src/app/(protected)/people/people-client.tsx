@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CloudOff, LoaderCircle, RefreshCw, Search, UsersRound } from "lucide-react";
+import { CloudOff, Download, LoaderCircle, RefreshCw, Search, UsersRound } from "lucide-react";
 import type { Employee } from "@/lib/types";
 
 const dateFormatter = new Intl.DateTimeFormat("zh-CN", {
@@ -66,7 +66,8 @@ export function PeopleClient({
       <div className="toolbar">
         <div className="search-box"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索姓名、工号、部门或人员 ID" aria-label="搜索人员" /></div>
         <span className="metric-chip"><UsersRound size={12} style={{ verticalAlign: -2, marginRight: 4 }} />{filtered.length} 名人员</span>
-        <button className="button button-primary" style={{ marginLeft: "auto" }} type="button" onClick={sync} disabled={syncing}>{syncing ? <LoaderCircle className="spin" size={16} /> : <RefreshCw size={16} />}同步通讯录</button>
+        <a className="button button-secondary" style={{ marginLeft: "auto" }} href="/api/payroll/template"><Download size={16} />下载工资模板</a>
+        <button className="button button-primary" type="button" onClick={sync} disabled={syncing}>{syncing ? <LoaderCircle className="spin" size={16} /> : <RefreshCw size={16} />}同步通讯录</button>
       </div>
       {message ? <p className="notice" role="status" style={{ marginBottom: 14 }}>{message}</p> : null}
       <section className="panel">

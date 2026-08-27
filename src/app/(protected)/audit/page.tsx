@@ -11,6 +11,7 @@ const actionNames: Record<string, string> = {
   "auth.login.failed": "登录失败",
   "auth.logout": "退出登录",
   "payroll.import": "工资导入",
+  "payroll.template.download": "模板下载",
   "payroll.cost.update": "工资修改",
   "directory.sync": "人员同步",
   "api_client.create": "创建密钥",

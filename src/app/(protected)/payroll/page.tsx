@@ -14,7 +14,7 @@ export default async function PayrollPage() {
       <PageHeader
         eyebrow="工资数据"
         title="工资管理"
-        description="按人员和月份维护公司人力总成本。最近月份靠左，所有手工修改都会进入审计记录。"
+        description="按稳定人员 ID 和月份维护公司人力总成本；离职人员仍保留在历史月份中，所有修改都会进入审计记录。"
       />
       <PayrollClient
         employees={state.employees}

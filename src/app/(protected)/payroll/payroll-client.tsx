@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   CheckCircle2,
+  Download,
   FileSpreadsheet,
   LoaderCircle,
   PencilLine,
@@ -16,6 +17,7 @@ import type { Employee, ImportError, ImportRow, MonthlyCost, PayrollImport } fro
 type Preview = {
   fileName: string;
   sheetName: string;
+  format: "system_template" | "legacy";
   period: string | null;
   totalRows: number;
   validRows: number;
@@ -141,7 +143,7 @@ export function PayrollClient({
               {filtered.map((employee) => (
                 <tr key={employee.id}>
                   <td className="sticky-col-1"><span className="table-primary">{employee.department}</span></td>
-                  <td className="sticky-col-2"><span className="table-primary">{employee.name}</span><span className="table-secondary">{employee.employeeNo ?? employee.id}</span></td>
+                  <td className="sticky-col-2"><span className="table-primary">{employee.name}</span><span className="table-secondary">{employee.employeeNo ?? employee.id} · {employee.status === "active" ? "在职" : "离职"}</span></td>
                   {periods.map((period) => {
                     const cost = costMap.get(`${employee.id}:${period}`);
                     return <td key={period}>{cost ? <button className="money-cell" type="button" onClick={() => openEdit(employee, period, cost.amountCents)} title="点击修改"><PencilLine size={11} style={{ marginRight: 5, verticalAlign: -2 }} />{currency.format(cost.amountCents / 100)}</button> : <span className="empty-cell">—</span>}</td>;
@@ -161,10 +163,11 @@ export function PayrollClient({
       {importOpen ? (
         <div className="modal-backdrop" role="presentation">
           <section className="modal" role="dialog" aria-modal="true" aria-labelledby="import-title">
-            <div className="modal-header"><div><h2 id="import-title">导入月度工资</h2><p>只读取第一个工作表中的姓名、期间和公司人力总成本。</p></div><button className="icon-button" type="button" onClick={() => setImportOpen(false)} aria-label="关闭"><X size={18} /></button></div>
+            <div className="modal-header"><div><h2 id="import-title">导入月度工资</h2><p>系统模板按稳定人员 ID 精确匹配，并保留每个月的人员和部门快照。</p></div><button className="icon-button" type="button" onClick={() => setImportOpen(false)} aria-label="关闭"><X size={18} /></button></div>
             <div className="modal-body">
+              <div className="notice" style={{ marginBottom: 14 }}><Download size={17} /><span>请优先使用人员管理页面生成的最新模板。<a href="/api/payroll/template" style={{ marginLeft: 5, fontWeight: 760 }}>下载系统工资模板</a></span></div>
               <label className="file-drop"><div><FileSpreadsheet size={28} style={{ color: "var(--primary)" }} /><strong style={{ display: "block", marginTop: 9, color: "var(--text)" }}>选择工资 Excel</strong><span style={{ fontSize: 11 }}>仅支持 .xlsx，最大 10 MB</span><input type="file" accept=".xlsx" onChange={(event) => { setFile(event.target.files?.[0] ?? null); setPreview(null); setMessage(""); }} /></div></label>
-              {preview ? <><div className="preview-stats"><div className="preview-stat"><span>工资期间</span><strong>{preview.period ?? "异常"}</strong></div><div className="preview-stat"><span>有效记录</span><strong>{preview.validRows}</strong></div><div className="preview-stat"><span>错误记录</span><strong style={{ color: preview.errorRows ? "var(--danger)" : "var(--success)" }}>{preview.errorRows}</strong></div></div><div className={preview.errorRows ? "notice notice-warning" : "notice"}>{preview.errorRows ? `发现 ${preview.errorRows} 个问题，修正前不能提交。` : `校验通过：首表“${preview.sheetName}”，可安全导入 ${preview.validRows} 条记录。`}</div>{preview.errors.length ? <ul style={{ color: "var(--danger)", fontSize: 11, lineHeight: 1.8 }}>{preview.errors.slice(0, 8).map((item) => <li key={`${item.sourceRow}-${item.name}`}>第 {item.sourceRow || "-"} 行 · {item.name}：{item.message}</li>)}</ul> : null}</> : null}
+              {preview ? <><div className="preview-stats"><div className="preview-stat"><span>工资期间</span><strong>{preview.period ?? "异常"}</strong></div><div className="preview-stat"><span>有效记录</span><strong>{preview.validRows}</strong></div><div className="preview-stat"><span>错误记录</span><strong style={{ color: preview.errorRows ? "var(--danger)" : "var(--success)" }}>{preview.errorRows}</strong></div></div><div className={preview.errorRows ? "notice notice-warning" : "notice"}>{preview.errorRows ? `发现 ${preview.errorRows} 个问题，修正前不能提交。` : `校验通过：${preview.format === "system_template" ? "人员 ID 已全部匹配" : "旧版表格已按唯一工号/姓名匹配"}，可安全导入 ${preview.validRows} 条记录。`}</div>{preview.errors.length ? <ul style={{ color: "var(--danger)", fontSize: 11, lineHeight: 1.8 }}>{preview.errors.slice(0, 8).map((item) => <li key={`${item.sourceRow}-${item.name}`}>第 {item.sourceRow || "-"} 行 · {item.name}：{item.message}</li>)}</ul> : null}</> : null}
               {message ? <p className={message.includes("已安全") ? "notice" : "form-error"} role="status">{message}</p> : null}
             </div>
             <div className="modal-footer"><button className="button button-secondary" type="button" onClick={() => setImportOpen(false)}>取消</button>{preview ? <button className="button button-primary" type="button" disabled={busy || preview.errorRows > 0} onClick={() => runImport("commit")}>{busy ? <LoaderCircle className="spin" size={16} /> : <CheckCircle2 size={16} />}确认导入</button> : <button className="button button-primary" type="button" disabled={busy || !file} onClick={() => runImport("preview")}>{busy ? <LoaderCircle className="spin" size={16} /> : <Upload size={16} />}校验并预览</button>}</div>

@@ -84,7 +84,9 @@ for (const [route, text] of [
   await checked(`${route} renders`, async () => {
     const response = await appFetch(route);
     assert.equal(response.status, 200);
-    assert.match(await response.text(), new RegExp(text));
+    const html = await response.text();
+    assert.match(html, new RegExp(text));
+    if (route === "/people") assert.match(html, /下载工资模板/);
   });
 }
 
@@ -97,7 +99,7 @@ await checked("successful and failed login attempts are audited without password
 });
 
 const workbookBytes = await fs.readFile(payrollPath);
-const createPayrollForm = () => {
+const createReferencePayrollForm = () => {
   const form = new FormData();
   form.set(
     "file",
@@ -108,17 +110,47 @@ const createPayrollForm = () => {
   return form;
 };
 
-await checked("reference workbook previews 158 valid rows", async () => {
+let systemWorkbookBytes;
+await checked("system template contains every current and historical person with blank costs", async () => {
+  const response = await appFetch("/api/payroll/template");
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get("content-type") ?? "", /spreadsheetml/);
+  assert.match(response.headers.get("content-disposition") ?? "", /attachment/);
+  const templateBytes = Buffer.from(await response.arrayBuffer());
+  const workbook = XLSX.read(templateBytes, { type: "buffer" });
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const values = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: null });
+  assert.equal(values[0][0], "工资期间");
+  assert.equal(values[0][1], null);
+  assert.deepEqual(values[2], ["人员ID", "工号", "姓名", "部门", "人员状态", "公司人力总成本"]);
+  assert.equal(values.slice(3).length, 8);
+  assert.equal(values.slice(3).every((row) => row[0] && row[5] === null), true);
+
+  sheet.B1 = { t: "n", v: 202608 };
+  values.slice(3).forEach((_, index) => {
+    sheet[`F${index + 4}`] = { t: "n", v: 20000 + index * 1000 };
+  });
+  systemWorkbookBytes = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
+});
+
+const createSystemPayrollForm = () => {
+  const form = new FormData();
+  form.set("file", new File([systemWorkbookBytes], "autocost-system-template.xlsx"));
+  return form;
+};
+
+await checked("system template previews with stable employee id matches", async () => {
   const response = await appFetch("/api/payroll/import?mode=preview", {
     method: "POST",
-    body: createPayrollForm(),
+    body: createSystemPayrollForm(),
   });
   const body = await json(response);
   assert.equal(response.status, 200);
-  assert.equal(body.preview.sheetName, "2607工资");
-  assert.equal(body.preview.period, "2026-07");
-  assert.equal(body.preview.validRows, 158);
+  assert.equal(body.preview.format, "system_template");
+  assert.equal(body.preview.period, "2026-08");
+  assert.equal(body.preview.validRows, 8);
   assert.equal(body.preview.errorRows, 0);
+  assert.equal(body.preview.rows.every((row) => row.employeeId), true);
 });
 
 const invalidWorkbook = XLSX.utils.book_new();
@@ -149,7 +181,7 @@ await checked("invalid, duplicate and mixed-period payroll rows cannot commit", 
   });
   const previewBody = await json(previewResponse);
   assert.equal(previewResponse.status, 200);
-  assert.equal(previewBody.preview.errorRows, 4);
+  assert.ok(previewBody.preview.errorRows >= 4);
   assert.match(JSON.stringify(previewBody.preview.errors), /姓名重复/);
   assert.match(JSON.stringify(previewBody.preview.errors), /有效数值/);
   assert.match(JSON.stringify(previewBody.preview.errors), /只能包含一个工资期间/);
@@ -160,15 +192,16 @@ await checked("invalid, duplicate and mixed-period payroll rows cannot commit", 
   assert.equal(commitResponse.status, 422);
 });
 
-await checked("reference workbook commits without retaining source file", async () => {
+await checked("system template commits without retaining source file", async () => {
   const response = await appFetch("/api/payroll/import?mode=commit", {
     method: "POST",
-    body: createPayrollForm(),
+    body: createSystemPayrollForm(),
   });
   const body = await json(response);
   assert.equal(response.status, 200);
-  assert.equal(body.result.updatedCosts, 158);
-  assert.equal(body.result.removedDemoEmployees, 8);
+  assert.equal(body.result.updatedCosts, 8);
+  assert.equal(body.result.createdEmployees, 0);
+  assert.equal(body.result.removedDemoEmployees, 0);
   assert.equal(body.result.sampleEmployeeIds.length, 2);
   queryEmployeeIds = body.result.sampleEmployeeIds;
   const persisted = JSON.parse(await fs.readFile(statePath, "utf8"));
@@ -178,10 +211,27 @@ await checked("reference workbook commits without retaining source file", async 
   ]);
 });
 
-await checked("duplicate workbook is rejected", async () => {
+await checked("legacy reference workbook cannot create unmatched people", async () => {
+  const previewResponse = await appFetch("/api/payroll/import?mode=preview", {
+    method: "POST",
+    body: createReferencePayrollForm(),
+  });
+  const previewBody = await json(previewResponse);
+  assert.equal(previewResponse.status, 200);
+  assert.equal(previewBody.preview.sheetName, "2607工资");
+  assert.ok(previewBody.preview.errorRows > 0);
+  assert.match(JSON.stringify(previewBody.preview.errors), /人员目录中找到匹配人员/);
+  const commitResponse = await appFetch("/api/payroll/import?mode=commit", {
+    method: "POST",
+    body: createReferencePayrollForm(),
+  });
+  assert.equal(commitResponse.status, 422);
+});
+
+await checked("duplicate system workbook is rejected", async () => {
   const response = await appFetch("/api/payroll/import?mode=commit", {
     method: "POST",
-    body: createPayrollForm(),
+    body: createSystemPayrollForm(),
   });
   const body = await json(response);
   assert.equal(response.status, 400);
@@ -192,13 +242,13 @@ await checked("manual cost edit requires and records a reason", async () => {
   const missingReason = await appFetch("/api/payroll/cost", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ employeeId: queryEmployeeIds[0], period: "2026-07", amount: 20000, reason: "" }),
+    body: JSON.stringify({ employeeId: queryEmployeeIds[0], period: "2026-08", amount: 20000, reason: "" }),
   });
   assert.equal(missingReason.status, 400);
   const response = await appFetch("/api/payroll/cost", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ employeeId: queryEmployeeIds[0], period: "2026-07", amount: 20000, reason: "端到端验收调整" }),
+    body: JSON.stringify({ employeeId: queryEmployeeIds[0], period: "2026-08", amount: 20000, reason: "端到端验收调整" }),
   });
   assert.equal(response.status, 200);
   const audit = await appFetch("/audit");

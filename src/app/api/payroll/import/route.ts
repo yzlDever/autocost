@@ -1,6 +1,7 @@
 import { jsonError, requireApiSession } from "@/lib/api";
 import { parsePayrollFile } from "@/lib/excel";
-import { commitPayrollImport } from "@/lib/store";
+import { matchPayrollPreview } from "@/lib/payroll-matching";
+import { commitPayrollImport, getStoreState } from "@/lib/store";
 import { getRequestIp } from "@/lib/utils";
 
 export const runtime = "nodejs";
@@ -13,7 +14,8 @@ export async function POST(request: Request) {
     const formData = await request.formData();
     const file = formData.get("file");
     if (!(file instanceof File)) return jsonError("请选择 Excel 文件。");
-    const preview = await parsePayrollFile(file);
+    const parsed = await parsePayrollFile(file);
+    const preview = matchPayrollPreview(parsed, (await getStoreState()).employees);
     if (mode === "preview") {
       return Response.json({
         success: true,

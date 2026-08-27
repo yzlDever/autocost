@@ -95,6 +95,7 @@ export type StoreState = {
 
 export type ImportRow = {
   sourceRow: number;
+  employeeId: string | null;
   employeeNo: string | null;
   name: string;
   department: string;
@@ -112,6 +113,7 @@ export type ImportPreview = {
   fileName: string;
   sha256: string;
   sheetName: string;
+  format: "system_template" | "legacy";
   period: string | null;
   totalRows: number;
   validRows: number;
