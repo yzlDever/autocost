@@ -3,6 +3,7 @@ import {
   DingTalkAuthError,
   type DingTalkAuthErrorCode,
 } from "@/lib/dingtalk";
+import { getDingTalkAuthorizationCode } from "@/lib/dingtalk-oauth";
 import {
   clearOAuthStateCookie,
   getOAuthStateCookie,
@@ -29,7 +30,7 @@ export async function GET(request: Request) {
   const sourceIp = getRequestIp(request.headers);
   const url = new URL(request.url);
   const state = url.searchParams.get("state");
-  const code = url.searchParams.get("code");
+  const code = getDingTalkAuthorizationCode(url.searchParams);
   const providerError = url.searchParams.get("error");
   const oauthState = verifyOAuthStateToken(await getOAuthStateCookie(), state);
   await clearOAuthStateCookie();
