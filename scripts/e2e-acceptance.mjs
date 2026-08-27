@@ -1,0 +1,248 @@
+import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import path from "node:path";
+
+const baseUrl = process.env.BASE_URL ?? "http://127.0.0.1:3000";
+const payrollPath = process.env.PAYROLL_TEST_FILE;
+if (!payrollPath) throw new Error("PAYROLL_TEST_FILE is required");
+const statePath = process.env.ACCEPTANCE_STATE_PATH;
+if (!statePath) throw new Error("ACCEPTANCE_STATE_PATH is required");
+
+let cookie = "";
+const checks = [];
+let queryEmployeeIds = [];
+
+async function checked(name, fn) {
+  await fn();
+  checks.push(name);
+}
+
+async function appFetch(url, init = {}) {
+  const headers = new Headers(init.headers);
+  if (cookie) headers.set("Cookie", cookie);
+  return fetch(`${baseUrl}${url}`, { ...init, headers, redirect: "manual" });
+}
+
+async function json(response) {
+  return response.json();
+}
+
+await checked("login rejects wrong password", async () => {
+  const response = await appFetch("/api/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username: "admin", password: "wrong" }),
+  });
+  assert.equal(response.status, 401);
+});
+
+await checked("protected pages redirect before login", async () => {
+  const response = await appFetch("/dashboard");
+  assert.equal(response.status, 307);
+  assert.equal(response.headers.get("location"), "/login");
+});
+
+await checked("login succeeds with fixed test account", async () => {
+  const response = await appFetch("/api/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username: "admin", password: "admin123" }),
+  });
+  assert.equal(response.status, 200);
+  cookie = response.headers.getSetCookie()[0].split(";")[0];
+  assert.match(cookie, /^auto_cost_session=/);
+});
+
+for (const [route, text] of [
+  ["/dashboard", "人力成本仪表盘"],
+  ["/payroll", "工资管理"],
+  ["/people", "人员管理"],
+  ["/integrations", "接口管理"],
+  ["/audit", "操作审计"],
+]) {
+  await checked(`${route} renders`, async () => {
+    const response = await appFetch(route);
+    assert.equal(response.status, 200);
+    assert.match(await response.text(), new RegExp(text));
+  });
+}
+
+await checked("successful and failed login attempts are audited without passwords", async () => {
+  const response = await appFetch("/audit");
+  const html = await response.text();
+  assert.match(html, /固定账号登录失败/);
+  assert.match(html, /固定账号登录成功/);
+  assert.doesNotMatch(html, /admin123|wrong/);
+});
+
+const workbookBytes = await fs.readFile(payrollPath);
+const createPayrollForm = () => {
+  const form = new FormData();
+  form.set(
+    "file",
+    new File([workbookBytes], path.basename(payrollPath), {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    }),
+  );
+  return form;
+};
+
+await checked("reference workbook previews 158 valid rows", async () => {
+  const response = await appFetch("/api/payroll/import?mode=preview", {
+    method: "POST",
+    body: createPayrollForm(),
+  });
+  const body = await json(response);
+  assert.equal(response.status, 200);
+  assert.equal(body.preview.sheetName, "2607工资");
+  assert.equal(body.preview.period, "2026-07");
+  assert.equal(body.preview.validRows, 158);
+  assert.equal(body.preview.errorRows, 0);
+});
+
+await checked("reference workbook commits without retaining source file", async () => {
+  const response = await appFetch("/api/payroll/import?mode=commit", {
+    method: "POST",
+    body: createPayrollForm(),
+  });
+  const body = await json(response);
+  assert.equal(response.status, 200);
+  assert.equal(body.result.updatedCosts, 158);
+  assert.equal(body.result.removedDemoEmployees, 8);
+  assert.equal(body.result.sampleEmployeeIds.length, 2);
+  queryEmployeeIds = body.result.sampleEmployeeIds;
+  const persisted = JSON.parse(await fs.readFile(statePath, "utf8"));
+  assert.deepEqual(Object.keys(persisted.imports[0]).sort(), [
+    "actor", "createdAt", "errorRows", "fileName", "id", "period",
+    "sha256", "status", "totalRows", "validRows",
+  ]);
+});
+
+await checked("duplicate workbook is rejected", async () => {
+  const response = await appFetch("/api/payroll/import?mode=commit", {
+    method: "POST",
+    body: createPayrollForm(),
+  });
+  const body = await json(response);
+  assert.equal(response.status, 400);
+  assert.match(body.message, /已经导入过/);
+});
+
+await checked("manual cost edit requires and records a reason", async () => {
+  const missingReason = await appFetch("/api/payroll/cost", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ employeeId: queryEmployeeIds[0], period: "2026-07", amount: 20000, reason: "" }),
+  });
+  assert.equal(missingReason.status, 400);
+  const response = await appFetch("/api/payroll/cost", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ employeeId: queryEmployeeIds[0], period: "2026-07", amount: 20000, reason: "端到端验收调整" }),
+  });
+  assert.equal(response.status, 200);
+  const audit = await appFetch("/audit");
+  assert.match(await audit.text(), /端到端验收调整/);
+});
+
+async function createClient(name) {
+  const response = await appFetch("/api/clients", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  const body = await json(response);
+  assert.equal(response.status, 200);
+  assert.match(body.key, /^ac_live_/);
+  assert.equal("keyHash" in body.client, false);
+  return { key: body.key, id: body.client.id };
+}
+
+const primaryClient = await createClient("验收经营分析系统");
+
+async function queryCost(key, items) {
+  const response = await fetch(`${baseUrl}/api/v1/labor-cost/query`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${key}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ items }),
+  });
+  return { response, body: await json(response) };
+}
+
+await checked("single-person and duplicate-person queries are rejected", async () => {
+  const single = await queryCost(primaryClient.key, [
+    { employeeId: queryEmployeeIds[0], from: "2026-07-01", to: "2026-07-31" },
+  ]);
+  assert.equal(single.body.errorCode, "MIN_PARTICIPANTS");
+  const duplicate = await queryCost(primaryClient.key, [
+    { employeeId: queryEmployeeIds[0], from: "2026-07-01", to: "2026-07-31" },
+    { employeeId: queryEmployeeIds[0], from: "2026-07-01", to: "2026-07-31" },
+  ]);
+  assert.equal(duplicate.body.errorCode, "DUPLICATE_EMPLOYEE");
+});
+
+const validItems = [
+  { employeeId: queryEmployeeIds[0], from: "2026-07-01", to: "2026-07-31" },
+  { employeeId: queryEmployeeIds[1], from: "2026-07-01", to: "2026-07-31" },
+];
+
+await checked("valid query returns aggregate only", async () => {
+  const { response, body } = await queryCost(primaryClient.key, validItems);
+  assert.equal(response.status, 200);
+  assert.equal(body.success, true);
+  assert.equal(body.participantCount, 2);
+  assert.equal(body.allocationMethod, "calendar_day");
+  assert.equal(typeof body.totalCost, "number");
+  assert.equal("items" in body, false);
+  assert.equal("employeeId" in body, false);
+  assert.equal("contributions" in body, false);
+});
+
+await checked("near-identical differencing query is blocked", async () => {
+  const changed = [validItems[0], { ...validItems[1], to: "2026-07-30" }];
+  const { body } = await queryCost(primaryClient.key, changed);
+  assert.equal(body.errorCode, "DIFFERENCING_RISK");
+});
+
+const contributionClient = await createClient("贡献门槛验收系统");
+await checked("low-contribution padding is blocked", async () => {
+  const { body } = await queryCost(contributionClient.key, [
+    { employeeId: queryEmployeeIds[0], from: "2026-07-01", to: "2026-07-01" },
+    { employeeId: queryEmployeeIds[1], from: "2026-07-01", to: "2026-07-31" },
+  ]);
+  assert.equal(body.errorCode, "CONTRIBUTION_TOO_LOW");
+});
+
+await checked("disabled key becomes unauthorized", async () => {
+  const response = await appFetch("/api/clients", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id: contributionClient.id }),
+  });
+  assert.equal(response.status, 200);
+  const disabled = await queryCost(contributionClient.key, validItems);
+  assert.equal(disabled.response.status, 401);
+  assert.equal(disabled.body.errorCode, "UNAUTHORIZED");
+});
+
+await checked("directory sync and query logs render", async () => {
+  const sync = await appFetch("/api/people/sync", { method: "POST" });
+  assert.equal(sync.status, 200);
+  const logsPage = await appFetch("/integrations");
+  const html = await logsPage.text();
+  assert.match(html, /DIFFERENCING_RISK/);
+  assert.match(html, /CONTRIBUTION_TOO_LOW/);
+});
+
+await checked("logout clears access", async () => {
+  const response = await appFetch("/api/auth/logout", { method: "POST" });
+  assert.equal(response.status, 200);
+  cookie = "";
+  const protectedPage = await appFetch("/dashboard");
+  assert.equal(protectedPage.status, 307);
+});
+
+console.log(JSON.stringify({ passed: checks.length, checks }, null, 2));
