@@ -15,15 +15,6 @@
 
 # local environment files
 .env*
-!.env.example
-
-# local development data
-/.data/
-
-# sensitive payroll import files
-*.xlsx
-*.xls
-*.csv
 
 # vercel
 .vercel
@@ -40,5 +31,3 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# browser verification artifacts
-/artifacts/
