@@ -40,7 +40,7 @@ Next.js 生产构建：PASS（15 条页面/API 路由成功生成）
 ## 4. 发布前阻断项
 
 1. 在 Vercel 的 `auto-cost` 项目中创建并连接 Neon Postgres，仅连接 Production 环境。
-2. 在 Production 配置 `DATABASE_URL`、`DATA_BACKEND=neon`、`ADMIN_USERNAME`、`ADMIN_PASSWORD`、`AUTH_SECRET`。
+2. 确认 Neon 自动向 Production 注入 `DATABASE_URL`；正式开放前建议用独立 `AUTH_SECRET` 和新管理员密码覆盖 V1 固定测试凭据。
 3. 发布 `3f50e10` 之后确认部署 `READY`，执行线上登录与关键路由验收，并扫描运行时错误。
 4. 在可用浏览器环境完成桌面/手机布局、键盘操作和控制台检查；本轮由产品负责人做第一版手工视觉验收。
 

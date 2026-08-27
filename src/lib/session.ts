@@ -1,6 +1,6 @@
 import "server-only";
 
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
@@ -15,18 +15,24 @@ export type Session = {
 function getAuthSecret() {
   const value = process.env.AUTH_SECRET;
   if (value) return value;
-  if (process.env.NODE_ENV !== "production") return "auto-cost-development-secret";
-  throw new Error("生产环境必须配置 AUTH_SECRET。");
+  if (process.env.NODE_ENV === "production") {
+    const databaseUrl = process.env.DATABASE_URL;
+    if (!databaseUrl) throw new Error("生产环境缺少 DATABASE_URL，无法派生会话签名密钥。");
+    return createHash("sha256")
+      .update(`auto-cost/session/v1\0${databaseUrl}`)
+      .digest("hex");
+  }
+  return "auto-cost-development-secret";
 }
 
 export function getAdminCredentials() {
   const username = process.env.ADMIN_USERNAME;
   const password = process.env.ADMIN_PASSWORD;
   if (username && password) return { username, password };
-  if (process.env.NODE_ENV !== "production") {
-    return { username: "admin", password: "admin123" };
+  if (username || password) {
+    throw new Error("ADMIN_USERNAME 和 ADMIN_PASSWORD 必须同时配置。");
   }
-  throw new Error("生产环境必须配置 ADMIN_USERNAME 和 ADMIN_PASSWORD。");
+  return { username: "admin", password: "admin123" };
 }
 
 function sign(payload: string) {

@@ -127,7 +127,8 @@ function shouldUseNeon() {
     return false;
   }
   if (process.env.NODE_ENV === "production") {
-    throw new Error("生产环境必须配置 DATA_BACKEND=neon 和 DATABASE_URL，禁止使用临时文件保存工资数据。");
+    if (process.env.DATABASE_URL) return true;
+    throw new Error("生产环境必须配置 DATABASE_URL，禁止使用临时文件保存工资数据。");
   }
   return false;
 }

@@ -55,8 +55,8 @@ V1 是环境测试版本：使用固定账号登录，完成工资 Excel 导入�
 
 - 默认测试账号：`admin`。
 - 默认测试密码：`admin123`。
-- 正式部署通过 `ADMIN_USERNAME`、`ADMIN_PASSWORD` 提供，不写入仓库。
-- `AUTH_SECRET` 用于 HMAC-SHA256 签名会话 Cookie。
+- V1 环境测试固定账号为 `admin / admin123`；可通过 `ADMIN_USERNAME`、`ADMIN_PASSWORD` 成对覆盖。
+- `AUTH_SECRET` 用于 HMAC-SHA256 签名会话 Cookie；未配置时，生产环境通过 `DATABASE_URL` 做域隔离 SHA-256 派生，数据库凭据轮换会使已有会话失效。
 - Cookie 属性：HttpOnly、SameSite=Lax、生产环境 Secure、8 小时过期。
 - 登录失败采用来源 IP + 用户名的内存限流；审计只记录用户名、来源和结果，不记录密码。
 
@@ -229,11 +229,11 @@ Content-Type: application/json
 ## 12. 环境变量
 
 ```text
-ADMIN_USERNAME=
-ADMIN_PASSWORD=
-AUTH_SECRET=
 DATABASE_URL=
-DATA_BACKEND=local|neon
+ADMIN_USERNAME=        # 可选，必须与 ADMIN_PASSWORD 同时配置
+ADMIN_PASSWORD=        # 可选
+AUTH_SECRET=           # 可选，建议正式开放前独立配置
+DATA_BACKEND=local|neon # 本地可选；生产存在 DATABASE_URL 时自动使用 Neon
 ```
 
 秘密变量不能使用 `NEXT_PUBLIC_` 前缀。预览环境不得连接生产工资数据库。
@@ -249,4 +249,3 @@ V1 不包含：
 - 真实共享 Redis 限流。
 
 以上能力在用户完成 V1 手动验收后进入正式版计划。
-

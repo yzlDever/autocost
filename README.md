@@ -14,15 +14,13 @@ npm run dev
 
 ## 生产环境
 
-Vercel 必须配置以下变量：
+Vercel Marketplace 安装 Neon 后会自动注入唯一必需的生产变量：
 
 ```text
-ADMIN_USERNAME=admin
-ADMIN_PASSWORD=<secret>
-AUTH_SECRET=<至少 32 字节随机值>
-DATA_BACKEND=neon
 DATABASE_URL=<Neon Postgres 连接串>
 ```
+
+V1 环境测试固定使用 `admin / admin123`。如需覆盖固定凭据或使用独立会话密钥，可额外配置 `ADMIN_USERNAME`、`ADMIN_PASSWORD`、`AUTH_SECRET`。未配置 `AUTH_SECRET` 时，生产环境使用 `DATABASE_URL` 经域隔离 SHA-256 派生会话签名密钥；数据库凭据轮换会使已有会话失效。
 
 生产环境未连接 Neon 时应用会拒绝读取或写入工资数据，不会降级到 Vercel 临时文件系统。
 
