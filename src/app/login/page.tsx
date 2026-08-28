@@ -12,7 +12,7 @@ const loginErrors: Record<string, string> = {
   dingtalk_rejected: "钉钉未能确认本次登录，请重新扫码。",
   dingtalk_wrong_org: "请选择公司企业组织后再登录。",
   dingtalk_not_member: "当前账号不是公司企业组织的有效成员。",
-  dingtalk_not_allowed: "当前账号不在财务登录白名单中。",
+  dingtalk_not_allowed: "当前账号不在系统登录范围中。",
   dingtalk_unavailable: "钉钉身份服务暂时不可用，请稍后重试。",
 };
 

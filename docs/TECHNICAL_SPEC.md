@@ -63,7 +63,7 @@ V1 使用钉钉企业身份作为唯一登录方式，完成工资 Excel 导入�
 - 使用企业内部应用 OAuth 2.0 网页授权，授权入口为 `/api/auth/dingtalk`，回调为 `/api/auth/dingtalk/callback`。
 - OAuth `state` 使用 256 位随机数并通过 HttpOnly、SameSite=Lax、10 分钟有效期 Cookie 绑定，回调后立即清除，防止登录 CSRF 与重放。
 - 服务端以授权码换取用户访问凭证，读取 `unionId`，再通过企业应用凭证换取组织 AccessToken，并将 `unionId` 映射为企业 `userId`。
-- 登录采用双重权限控制：钉钉应用权限范围控制可读取的组织数据；系统端 `DINGTALK_ALLOWED_USER_IDS` 单独限制可登录的财务人员。
+- 登录采用双重权限控制：首先将登录人的 `unionId` 映射为本企业当前有效 `userId`；系统端 `DINGTALK_ALLOWED_USER_IDS` 再控制登录范围。值为 `*` 时允许所有当前有效企业成员，指定 userId 列表时仅允许名单成员。
 - 扫码登录需要 `Contact.User.Read` 和 unionId 到企业 userId 的成员读取权限；不申请手机号权限，不读取手机号。
 - 钉钉身份会写入现有 8 小时签名会话 Cookie，Cookie 中仅保存姓名、认证来源和钉钉 `userId`，不保存钉钉 AccessToken。
 
@@ -245,7 +245,7 @@ DINGTALK_CLIENT_ID=     # 企业内部应用 Client ID
 DINGTALK_CLIENT_SECRET= # 企业内部应用 Client Secret，仅服务端
 DINGTALK_REDIRECT_URI=  # 例如 http://localhost:3000/api/auth/dingtalk/callback
 DINGTALK_CORP_ID=       # 可选但建议配置，用于校验登录组织
-DINGTALK_ALLOWED_USER_IDS= # 财务人员钉钉 userId，英文逗号分隔
+DINGTALK_ALLOWED_USER_IDS= # * 表示本企业当前有效成员；也可填写英文逗号分隔的 userId
 ```
 
 秘密变量不能使用 `NEXT_PUBLIC_` 前缀。预览环境不得连接生产工资数据库。

@@ -1,6 +1,10 @@
 import "server-only";
 
 import type { DirectoryPerson, DirectorySnapshot } from "./directory-sync";
+import {
+  isDingTalkUserAllowed,
+  parseDingTalkAllowedUserIds,
+} from "./dingtalk-login-scope";
 
 const DINGTALK_AUTHORIZE_URL = "https://login.dingtalk.com/oauth2/auth";
 const DINGTALK_API_URL = "https://api.dingtalk.com";
@@ -74,21 +78,12 @@ export class DingTalkDirectoryError extends Error {
 let organizationTokenCache: CachedOrganizationToken | null = null;
 let organizationTokenPromise: Promise<string> | null = null;
 
-function parseAllowedUserIds(value: string | undefined) {
-  return new Set(
-    (value ?? "")
-      .split(",")
-      .map((item) => item.trim())
-      .filter(Boolean),
-  );
-}
-
 export function isDingTalkAuthConfigured() {
   return Boolean(
     process.env.DINGTALK_CLIENT_ID?.trim() &&
     process.env.DINGTALK_CLIENT_SECRET?.trim() &&
     process.env.DINGTALK_REDIRECT_URI?.trim() &&
-    parseAllowedUserIds(process.env.DINGTALK_ALLOWED_USER_IDS).size > 0,
+    parseDingTalkAllowedUserIds(process.env.DINGTALK_ALLOWED_USER_IDS).size > 0,
   );
 }
 
@@ -115,11 +110,11 @@ export function getDingTalkConfig(): DingTalkConfig {
   const clientId = process.env.DINGTALK_CLIENT_ID?.trim();
   const clientSecret = process.env.DINGTALK_CLIENT_SECRET?.trim();
   const redirectUri = process.env.DINGTALK_REDIRECT_URI?.trim();
-  const allowedUserIds = parseAllowedUserIds(process.env.DINGTALK_ALLOWED_USER_IDS);
+  const allowedUserIds = parseDingTalkAllowedUserIds(process.env.DINGTALK_ALLOWED_USER_IDS);
   if (!clientId || !clientSecret || !redirectUri || allowedUserIds.size === 0) {
     throw new DingTalkAuthError(
       "DINGTALK_NOT_CONFIGURED",
-      "钉钉登录尚未完成应用凭据、回调地址或财务白名单配置。",
+      "钉钉登录尚未完成应用凭据、回调地址或登录范围配置。",
     );
   }
   let parsedRedirectUri: URL;
@@ -468,9 +463,10 @@ export async function authenticateWithDingTalk(code: string): Promise<DingTalkId
   }
   const currentUser = await getCurrentUser(userToken.accessToken);
   const appAccessToken = await getOrganizationAccessToken(config);
+  // 通配符只在 unionId 已成功映射为本企业当前有效 userId 后生效。
   const userId = await getOrganizationUserId(appAccessToken, currentUser.unionId);
-  if (!config.allowedUserIds.has(userId)) {
-    throw new DingTalkAuthError("DINGTALK_NOT_ALLOWED", "当前用户不在财务登录白名单中。");
+  if (!isDingTalkUserAllowed(config.allowedUserIds, userId)) {
+    throw new DingTalkAuthError("DINGTALK_NOT_ALLOWED", "当前用户不在系统登录范围中。");
   }
   return {
     userId,

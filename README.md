@@ -19,28 +19,28 @@ npm install
 npm run dev
 ```
 
-本地数据写入 `.data/auto-cost.json`，该目录不会进入 Git。系统不提供账号密码登录；本地联调登录页前，需要在 `.env.local` 配置钉钉应用和财务人员白名单。
+本地数据写入 `.data/auto-cost.json`，该目录不会进入 Git。系统不提供账号密码登录；本地联调登录页前，需要在 `.env.local` 配置钉钉应用和登录范围。
 
 ## 钉钉扫码登录
 
-在钉钉开发者后台创建企业内部应用，并在“钉钉登录与分享”中配置本地回调地址。扫码登录需要 `Contact.User.Read` 以及根据 unionId 查询企业 userId 的成员读取权限；系统端还会使用 `DINGTALK_ALLOWED_USER_IDS` 再做一次白名单校验。
+在钉钉开发者后台创建企业内部应用，并在“钉钉登录与分享”中配置本地回调地址。扫码登录需要 `Contact.User.Read` 以及根据 unionId 查询企业 userId 的成员读取权限；系统端还会使用 `DINGTALK_ALLOWED_USER_IDS` 校验登录范围。
 
 完整通讯录同步会递归读取部门、分页读取部门成员，需要额外开通以下应用权限：
 
 - `qyapi_get_department_list`：通讯录部门信息读权限。
 - `qyapi_get_department_member`：通讯录部门成员信息读权限。
 
-同步范围受钉钉后台配置的通讯录权限范围/应用可见范围限制。如果要同步全公司，必须让该应用的通讯录权限范围覆盖全公司；系统登录权限仍由 `DINGTALK_ALLOWED_USER_IDS` 单独限制为财务人员。同步不会申请或读取手机号权限。
+同步范围受钉钉后台配置的通讯录权限范围/应用可见范围限制。如果要同步全公司，必须让该应用的通讯录权限范围覆盖全公司；系统登录权限仍由 `DINGTALK_ALLOWED_USER_IDS` 单独控制。同步不会申请或读取手机号权限。
 
 ```text
 DINGTALK_CLIENT_ID=<应用 Client ID>
 DINGTALK_CLIENT_SECRET=<应用 Client Secret>
 DINGTALK_REDIRECT_URI=http://localhost:3000/api/auth/dingtalk/callback
 DINGTALK_CORP_ID=<企业 CorpId，可选但建议配置>
-DINGTALK_ALLOWED_USER_IDS=<允许登录的钉钉 userId，多个用英文逗号分隔>
+DINGTALK_ALLOWED_USER_IDS=* # 本企业当前有效成员均可登录；也可填写逗号分隔的指定 userId
 ```
 
-开发者后台的重定向 URL 必须与 `DINGTALK_REDIRECT_URI` 所使用的本地域名和端口一致。钉钉官方网页登录流程支持 `http://localhost` 用于开发测试。应用凭据与白名单只写入 `.env.local`，不得提交到代码仓库。
+开发者后台的重定向 URL 必须与 `DINGTALK_REDIRECT_URI` 所使用的本地域名和端口一致。钉钉官方网页登录流程支持 `http://localhost` 用于开发测试。应用凭据与登录范围只写入 `.env.local`，不得提交到代码仓库。
 
 ## 生产环境
 
