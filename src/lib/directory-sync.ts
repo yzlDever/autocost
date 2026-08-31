@@ -1,5 +1,4 @@
 import type { StoreState } from "./types";
-import { createId } from "./utils";
 
 export type DirectoryPerson = {
   userId: string;
@@ -12,10 +11,6 @@ export type DirectorySnapshot = {
   people: DirectoryPerson[];
   departments: Map<number, string>;
 };
-
-function findUnique<T>(items: T[]) {
-  return items.length === 1 ? items[0] : null;
-}
 
 function departmentLabel(person: DirectoryPerson, departments: Map<number, string>) {
   const names = person.departmentIds
@@ -36,30 +31,14 @@ export function applyDingTalkDirectorySnapshot(
   );
   const seenUserIds = new Set<string>();
   let created = 0;
-  let linked = 0;
   let updated = 0;
 
   peopleByUserId.forEach((person, userId) => {
-    let employee = draft.employees.find((item) => item.dingtalkUserId === userId);
-    if (!employee && person.employeeNo) {
-      employee = findUnique(
-        draft.employees.filter(
-          (item) => !item.dingtalkUserId && item.employeeNo === person.employeeNo,
-        ),
-      ) ?? undefined;
-    }
-    if (!employee) {
-      employee = findUnique(
-        draft.employees.filter(
-          (item) => !item.dingtalkUserId && item.name === person.name.trim(),
-        ),
-      ) ?? undefined;
-    }
+    let employee = draft.employees.find((item) => item.id === userId);
 
     if (!employee) {
       employee = {
-        id: createId("emp"),
-        dingtalkUserId: userId,
+        id: userId,
         employeeNo: person.employeeNo,
         name: person.name.trim(),
         department: departmentLabel(person, snapshot.departments),
@@ -70,8 +49,6 @@ export function applyDingTalkDirectorySnapshot(
       draft.employees.push(employee);
       created += 1;
     } else {
-      if (!employee.dingtalkUserId) linked += 1;
-      employee.dingtalkUserId = userId;
       employee.employeeNo = person.employeeNo || employee.employeeNo;
       employee.name = person.name.trim();
       employee.department = departmentLabel(person, snapshot.departments);
@@ -87,8 +64,7 @@ export function applyDingTalkDirectorySnapshot(
   draft.employees.forEach((employee) => {
     if (
       employee.source === "dingtalk" &&
-      employee.dingtalkUserId &&
-      !seenUserIds.has(employee.dingtalkUserId) &&
+      !seenUserIds.has(employee.id) &&
       employee.status !== "inactive"
     ) {
       employee.status = "inactive";
@@ -100,7 +76,6 @@ export function applyDingTalkDirectorySnapshot(
   return {
     count: peopleByUserId.size,
     created,
-    linked,
     updated,
     inactivated,
     departmentCount: snapshot.departments.size,

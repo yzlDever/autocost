@@ -12,10 +12,9 @@ process.env.ACCEPTANCE_AUTH_SECRET = acceptanceAuthSecret;
 const now = new Date().toISOString();
 const departments = ["研发中心", "研发中心", "销售中心", "销售中心", "财务部", "生产运营部", "生产运营部", "人力行政部"];
 await fs.writeFile(acceptanceStatePath, JSON.stringify({
-  schemaVersion: 1,
+  schemaVersion: 2,
   employees: departments.map((department, index) => ({
-    id: `emp_e2e_${String(index + 1).padStart(2, "0")}`,
-    dingtalkUserId: `ding_e2e_${String(index + 1).padStart(2, "0")}`,
+    id: `ding_e2e_${String(index + 1).padStart(2, "0")}`,
     employeeNo: `E${String(index + 1).padStart(4, "0")}`,
     name: `验收人员${String(index + 1).padStart(2, "0")}`,
     department,

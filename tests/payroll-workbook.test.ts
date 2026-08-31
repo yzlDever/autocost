@@ -13,7 +13,6 @@ const now = "2026-08-27T00:00:00.000Z";
 function employee(input: Partial<Employee> & Pick<Employee, "id" | "name">): Employee {
   return {
     id: input.id,
-    dingtalkUserId: input.dingtalkUserId ?? `ding-${input.id}`,
     employeeNo: input.employeeNo ?? null,
     name: input.name,
     department: input.department ?? "测试部",
@@ -24,8 +23,8 @@ function employee(input: Partial<Employee> & Pick<Employee, "id" | "name">): Emp
 }
 
 const directory = [
-  employee({ id: "emp-active", employeeNo: "A001", name: "在职员工", department: "研发部" }),
-  employee({ id: "emp-inactive", employeeNo: "A002", name: "离职员工", department: "历史部门", status: "inactive" }),
+  employee({ id: "ding-active", employeeNo: "A001", name: "在职员工", department: "研发部" }),
+  employee({ id: "ding-inactive", employeeNo: "A002", name: "离职员工", department: "历史部门", status: "inactive" }),
 ];
 
 test("system template contains every known employee and leaves period and costs blank", () => {
@@ -36,12 +35,12 @@ test("system template contains every known employee and leaves period and costs 
 
   assert.equal(values[0]?.[0], "工资期间");
   assert.equal(values[0]?.[1], null);
-  assert.deepEqual(values[2], ["人员ID", "工号", "姓名", "部门", "人员状态", "公司人力总成本"]);
-  assert.deepEqual(values[3], ["emp-active", "A001", "在职员工", "研发部", "在职", null]);
-  assert.deepEqual(values[4], ["emp-inactive", "A002", "离职员工", "历史部门", "离职", null]);
+  assert.deepEqual(values[2], ["钉钉人员编码", "工号", "姓名", "部门", "人员状态", "公司人力总成本"]);
+  assert.deepEqual(values[3], ["ding-active", "A001", "在职员工", "研发部", "在职", null]);
+  assert.deepEqual(values[4], ["ding-inactive", "A002", "离职员工", "历史部门", "离职", null]);
 });
 
-test("system template matches by stable employee id and preserves inactive monthly history", () => {
+test("system template matches by DingTalk userid primary key and preserves inactive monthly history", () => {
   const workbook = XLSX.read(buildPayrollTemplate(directory, new Date(now)), { type: "buffer" });
   const sheet = workbook.Sheets[workbook.SheetNames[0]];
   sheet.B1 = { t: "n", v: 202608 };
@@ -55,7 +54,7 @@ test("system template matches by stable employee id and preserves inactive month
   assert.equal(matched.format, "system_template");
   assert.equal(matched.period, "2026-08");
   assert.equal(matched.errorRows, 0);
-  assert.deepEqual(matched.rows.map((row) => row.employeeId), ["emp-active", "emp-inactive"]);
+  assert.deepEqual(matched.rows.map((row) => row.employeeId), ["ding-active", "ding-inactive"]);
   assert.equal(matched.rows[0]?.name, "在职员工");
   assert.equal(matched.rows[1]?.amountCents, 280_000);
 });
@@ -74,7 +73,7 @@ test("system template rejects a person id paired with a changed name or employee
 
   assert.equal(matched.validRows, 0);
   assert.equal(matched.errorRows, 1);
-  assert.match(matched.errors[0]?.message ?? "", /人员ID与当前姓名或工号不一致/);
+  assert.match(matched.errors[0]?.message ?? "", /钉钉人员编码与当前姓名或工号不一致/);
 });
 
 test("blank inactive rows are optional but blank active rows are rejected", () => {
@@ -104,14 +103,14 @@ test("legacy workbook uses a unique employee number before the name", () => {
   const matched = matchPayrollPreview(parsed, directory);
 
   assert.equal(matched.errorRows, 0);
-  assert.equal(matched.rows[0]?.employeeId, "emp-active");
+  assert.equal(matched.rows[0]?.employeeId, "ding-active");
   assert.equal(matched.rows[0]?.name, "在职员工");
 });
 
 test("legacy workbook rejects an ambiguous employee number", () => {
   const employees = [
-    employee({ id: "emp-1", employeeNo: "DUP", name: "甲" }),
-    employee({ id: "emp-2", employeeNo: "DUP", name: "乙" }),
+    employee({ id: "ding-1", employeeNo: "DUP", name: "甲" }),
+    employee({ id: "ding-2", employeeNo: "DUP", name: "乙" }),
   ];
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([

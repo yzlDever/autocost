@@ -63,8 +63,8 @@ export function IntegrationsClient({ clients, logs, sampleItems }: { clients: Sa
   -H "Authorization: Bearer <security-string>" \\
   -H "Content-Type: application/json" \\
   -d '${JSON.stringify({ items: sampleItems.length === 2 ? sampleItems : [
-    { employeeId: "emp_001", from: "2026-07-01", to: "2026-07-15" },
-    { employeeId: "emp_002", from: "2026-07-05", to: "2026-07-20" },
+    { employeeId: "ding_user_001", from: "2026-07-01", to: "2026-07-15" },
+    { employeeId: "ding_user_002", from: "2026-07-05", to: "2026-07-20" },
   ] }, null, 2)}'`;
 
   return (

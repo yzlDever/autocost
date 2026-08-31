@@ -79,7 +79,7 @@ export function validateQueryItems(items: QueryItem[], today = new Date()) {
     if (!item.employeeId || ids.has(item.employeeId)) {
       throw new CalculationError(
         "DUPLICATE_EMPLOYEE",
-        "人员 ID 不能为空，且同一个人员不能重复出现。",
+        "钉钉人员编码不能为空，且同一个人员不能重复出现。",
       );
     }
     ids.add(item.employeeId);
@@ -112,7 +112,7 @@ export function calculateBatchCost(
 
   const contributions = normalized.map(({ item, from, to, days }) => {
     if (!existingEmployeeIds.has(item.employeeId)) {
-      throw new CalculationError("EMPLOYEE_NOT_FOUND", "查询包含不存在的人员 ID。");
+      throw new CalculationError("EMPLOYEE_NOT_FOUND", "查询包含不存在的钉钉人员编码。");
     }
 
     let cursor = { year: from.year, month: from.month };

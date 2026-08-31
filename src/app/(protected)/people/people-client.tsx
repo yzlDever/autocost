@@ -12,7 +12,6 @@ const dateFormatter = new Intl.DateTimeFormat("zh-CN", {
 type SyncResult = {
   count: number;
   created: number;
-  linked: number;
   updated: number;
   inactivated: number;
   departmentCount: number;
@@ -44,7 +43,7 @@ export function PeopleClient({
       const synced = result.result;
       setMessage(
         `钉钉同步完成：${synced?.departmentCount ?? 0} 个部门、${synced?.count ?? 0} 名人员；` +
-        `新增 ${synced?.created ?? 0} 名，关联工资人员 ${synced?.linked ?? 0} 名，停用 ${synced?.inactivated ?? 0} 名。`,
+        `新增 ${synced?.created ?? 0} 名，更新 ${synced?.updated ?? 0} 名，停用 ${synced?.inactivated ?? 0} 名。`,
       );
       router.refresh();
     } catch (cause) {
@@ -64,7 +63,7 @@ export function PeopleClient({
         </span>
       </div>
       <div className="toolbar">
-        <div className="search-box"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索姓名、工号、部门或人员 ID" aria-label="搜索人员" /></div>
+        <div className="search-box"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索姓名、工号、部门或钉钉人员编码" aria-label="搜索人员" /></div>
         <span className="metric-chip"><UsersRound size={12} style={{ verticalAlign: -2, marginRight: 4 }} />{filtered.length} 名人员</span>
         <a className="button button-secondary" style={{ marginLeft: "auto" }} href="/api/payroll/template"><Download size={16} />下载工资模板</a>
         <button className="button button-primary" type="button" onClick={sync} disabled={syncing}>{syncing ? <LoaderCircle className="spin" size={16} /> : <RefreshCw size={16} />}同步通讯录</button>
@@ -73,7 +72,7 @@ export function PeopleClient({
       <section className="panel">
         <div className="table-wrap" style={{ maxHeight: 650 }}>
           <table className="data-table" aria-label="公司人员目录">
-            <thead><tr><th>姓名</th><th>人员 ID</th><th>工号</th><th>部门</th><th>状态</th><th>来源</th><th>最后同步</th></tr></thead>
+            <thead><tr><th>姓名</th><th>钉钉人员编码</th><th>工号</th><th>部门</th><th>状态</th><th>来源</th><th>最后同步</th></tr></thead>
             <tbody>{filtered.map((employee) => <tr key={employee.id}><td><span className="table-primary">{employee.name}</span></td><td><code>{employee.id}</code></td><td>{employee.employeeNo ?? "—"}</td><td>{employee.department}</td><td><span className={`status-pill ${employee.status === "active" ? "status-success" : "status-neutral"}`}>{employee.status === "active" ? "在职" : "离职"}</span></td><td><span className="status-pill status-neutral">{employee.source === "excel" ? "Excel" : "钉钉"}</span></td><td>{dateFormatter.format(new Date(employee.lastSyncedAt))}</td></tr>)}</tbody>
           </table>
         </div>

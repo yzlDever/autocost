@@ -89,7 +89,10 @@ export async function POST(request: Request) {
         typeof item.from !== "string" ||
         typeof item.to !== "string"
       ) {
-        throw new ApiRequestError("INVALID_JSON", "employeeId、from 和 to 必须是字符串。");
+        throw new ApiRequestError(
+          "INVALID_JSON",
+          "employeeId（钉钉人员编码）、from 和 to 必须是字符串。",
+        );
       }
       return { employeeId: item.employeeId, from: item.from, to: item.to };
     });

@@ -5,7 +5,7 @@ import { sha256 } from "./utils";
 export const PAYROLL_TEMPLATE_SHEET = "工资导入模板";
 
 const SYSTEM_HEADERS = [
-  "人员ID",
+  "钉钉人员编码",
   "工号",
   "姓名",
   "部门",
@@ -86,10 +86,10 @@ export function buildPayrollTemplate(employees: Employee[], generatedAt = new Da
   const instructions = XLSX.utils.aoa_to_sheet([
     ["AutoCost 工资导入模板"],
     ["1", "在“工资导入模板”工作表的 B1 填写工资期间，格式为 YYYYMM。"],
-    ["2", "人员 ID、工号、姓名、部门和人员状态由系统生成，请勿修改。"],
+    ["2", "钉钉人员编码、工号、姓名、部门和人员状态由系统生成，请勿修改。"],
     ["3", "在“公司人力总成本”列填写大于或等于 0 的数值。"],
     ["4", "在职人员必须填写；离职人员本月没有成本时可以留空，有离职结算时仍可填写。"],
-    ["5", "系统按人员 ID 精确关联，不会因为同名、改名或部门调整串改历史工资。"],
+    ["5", "系统按钉钉人员编码精确关联，不会因为同名、改名或部门调整串改历史工资。"],
     ["生成时间", generatedAt.toISOString()],
   ]);
   instructions["!cols"] = [{ wch: 16 }, { wch: 86 }];
@@ -97,7 +97,7 @@ export function buildPayrollTemplate(employees: Employee[], generatedAt = new Da
   const workbook = XLSX.utils.book_new();
   workbook.Props = {
     Title: "AutoCost 工资导入模板",
-    Subject: "按稳定人员 ID 导入月度人力成本",
+    Subject: "按钉钉人员编码导入月度人力成本",
     Author: "AutoCost",
     CreatedDate: generatedAt,
   };
@@ -121,7 +121,7 @@ export function parsePayrollWorkbook(bytes: Buffer, fileName: string): ImportPre
   const headerRowIndex = systemTemplate ? 2 : 0;
   const dataStartIndex = systemTemplate ? 3 : 2;
   const header = (matrix[headerRowIndex] ?? []).map((value) => String(value ?? "").trim());
-  const employeeIdColumn = header.indexOf("人员ID");
+  const employeeIdColumn = header.indexOf("钉钉人员编码");
   const periodColumn = header.indexOf("期间");
   const nameColumn = header.indexOf("姓名");
   const departmentColumn = header.indexOf("部门");
@@ -166,7 +166,7 @@ export function parsePayrollWorkbook(bytes: Buffer, fileName: string): ImportPre
       return;
     }
     if (systemTemplate && !employeeId) {
-      errors.push({ sourceRow, name, message: "人员ID不能为空，请重新下载系统模板。" });
+      errors.push({ sourceRow, name, message: "钉钉人员编码不能为空，请重新下载系统模板。" });
       return;
     }
     if (!period) {
@@ -184,7 +184,7 @@ export function parsePayrollWorkbook(bytes: Buffer, fileName: string): ImportPre
     }
     if (employeeId) {
       if (seenEmployeeIds.has(employeeId)) {
-        errors.push({ sourceRow, name, message: "同一文件中人员ID重复。" });
+        errors.push({ sourceRow, name, message: "同一文件中钉钉人员编码重复。" });
         return;
       }
       seenEmployeeIds.add(employeeId);

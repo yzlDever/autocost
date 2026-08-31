@@ -12,7 +12,11 @@ import type {
 } from "./types";
 import { applyDingTalkDirectorySnapshot, type DirectorySnapshot } from "./directory-sync";
 import { matchPayrollPreview } from "./payroll-matching";
-import { createEmptyStoreState, purgeLegacyTestData } from "./store-state";
+import {
+  createEmptyStoreState,
+  loadCurrentStoreState,
+  purgeLegacyTestData,
+} from "./store-state";
 import { createApiKey, createId, sha256 } from "./utils";
 
 const LOCAL_STATE_PATH = process.env.LOCAL_DATA_PATH
@@ -26,8 +30,9 @@ function cloneState(state: StoreState): StoreState {
 async function readLocalState(): Promise<StoreState> {
   try {
     const content = await fs.readFile(LOCAL_STATE_PATH, "utf8");
-    const result = purgeLegacyTestData(JSON.parse(content) as StoreState);
-    if (result.changed) await writeLocalState(result.state);
+    const loaded = loadCurrentStoreState(JSON.parse(content));
+    const result = purgeLegacyTestData(loaded.state);
+    if (loaded.reset || result.changed) await writeLocalState(result.state);
     return result.state;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
@@ -102,8 +107,9 @@ async function readNeonState() {
     const row = rows[0];
     if (!row) throw new Error("无法读取生产数据仓库。");
     const version = Number(row.version);
-    const result = purgeLegacyTestData(row.payload);
-    if (!result.changed) return { version, state: result.state };
+    const loaded = loadCurrentStoreState(row.payload);
+    const result = purgeLegacyTestData(loaded.state);
+    if (!loaded.reset && !result.changed) return { version, state: result.state };
     const payload = JSON.stringify(result.state);
     const updated = (await sql`
       UPDATE auto_cost_state
@@ -248,7 +254,7 @@ export async function commitPayrollImport(
         action: "payroll.import",
         objectType: "payroll_import",
         objectId: importId,
-        summary: `导入 ${resolved.period} 工资：${updatedCosts} 条，全部按稳定人员 ID 关联。`,
+        summary: `导入 ${resolved.period} 工资：${updatedCosts} 条，全部按钉钉人员编码关联。`,
         sourceIp,
       }),
     );
@@ -310,7 +316,7 @@ export async function syncDingTalkDirectory(
         action: "directory.sync",
         objectType: "employee_directory",
         objectId: "dingtalk",
-        summary: `完成钉钉通讯录同步，共 ${result.count} 名人员；新增 ${result.created} 名，关联 ${result.linked} 名，停用 ${result.inactivated} 名。`,
+        summary: `完成钉钉通讯录同步，共 ${result.count} 名人员；新增 ${result.created} 名，更新 ${result.updated} 名，停用 ${result.inactivated} 名。`,
         sourceIp,
       }),
     );

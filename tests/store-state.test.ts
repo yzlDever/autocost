@@ -1,15 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { purgeLegacyTestData } from "../src/lib/store-state";
+import {
+  loadCurrentStoreState,
+  purgeLegacyTestData,
+} from "../src/lib/store-state";
 import type { StoreState } from "../src/lib/types";
 
 test("purges legacy demo data without deleting real people or payroll history", () => {
   const state = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     employees: [
       {
         id: "emp_demo_01",
-        dingtalkUserId: "ding_demo_01",
         employeeNo: "D0001",
         name: "legacy-demo-person",
         department: "财务部",
@@ -18,8 +20,7 @@ test("purges legacy demo data without deleting real people or payroll history", 
         lastSyncedAt: "2026-07-01T00:00:00.000Z",
       },
       {
-        id: "emp-real-inactive",
-        dingtalkUserId: "ding-real",
+        id: "ding-real",
         employeeNo: "F001",
         name: "历史人员",
         department: "财务部",
@@ -40,7 +41,7 @@ test("purges legacy demo data without deleting real people or payroll history", 
         updatedAt: "2026-07-31T00:00:00.000Z",
       },
       {
-        employeeId: "emp-real-inactive",
+        employeeId: "ding-real",
         employeeNameSnapshot: "历史人员",
         departmentSnapshot: "财务部",
         period: "2026-07",
@@ -69,7 +70,18 @@ test("purges legacy demo data without deleting real people or payroll history", 
 
   assert.equal(result.changed, true);
   assert.equal(result.removedEmployees, 1);
-  assert.deepEqual(result.state.employees.map((employee) => employee.id), ["emp-real-inactive"]);
-  assert.deepEqual(result.state.monthlyCosts.map((cost) => cost.employeeId), ["emp-real-inactive"]);
+  assert.deepEqual(result.state.employees.map((employee) => employee.id), ["ding-real"]);
+  assert.deepEqual(result.state.monthlyCosts.map((cost) => cost.employeeId), ["ding-real"]);
   assert.equal(result.state.auditEvents.length, 0);
+});
+
+test("resets schema version 1 test data before using DingTalk userid primary keys", () => {
+  const result = loadCurrentStoreState({
+    schemaVersion: 1,
+    employees: [{ id: "emp-old" }],
+  });
+
+  assert.equal(result.reset, true);
+  assert.equal(result.state.schemaVersion, 2);
+  assert.deepEqual(result.state.employees, []);
 });

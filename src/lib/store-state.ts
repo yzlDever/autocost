@@ -2,7 +2,7 @@ import type { StoreState } from "./types";
 
 export function createEmptyStoreState(): StoreState {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     employees: [],
     monthlyCosts: [],
     imports: [],
@@ -10,6 +10,17 @@ export function createEmptyStoreState(): StoreState {
     queryLogs: [],
     auditEvents: [],
   };
+}
+
+export function loadCurrentStoreState(value: unknown) {
+  const schemaVersion = (value as { schemaVersion?: unknown } | null)?.schemaVersion;
+  if (schemaVersion === 2) {
+    return { state: value as StoreState, reset: false };
+  }
+  if (schemaVersion === 1) {
+    return { state: createEmptyStoreState(), reset: true };
+  }
+  throw new Error("数据仓库版本无效，无法安全读取工资数据。");
 }
 
 export function purgeLegacyTestData(state: StoreState) {

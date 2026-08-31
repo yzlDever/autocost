@@ -3,7 +3,6 @@ export type EmployeeSource = "dingtalk" | "excel";
 
 export type Employee = {
   id: string;
-  dingtalkUserId: string | null;
   employeeNo: string | null;
   name: string;
   department: string;
@@ -84,7 +83,7 @@ export type AuditEvent = {
 };
 
 export type StoreState = {
-  schemaVersion: 1;
+  schemaVersion: 2;
   employees: Employee[];
   monthlyCosts: MonthlyCost[];
   imports: PayrollImport[];

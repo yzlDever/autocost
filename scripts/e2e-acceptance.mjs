@@ -137,7 +137,7 @@ await checked("system template contains every current and historical person with
   const values = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: null });
   assert.equal(values[0][0], "工资期间");
   assert.equal(values[0][1], null);
-  assert.deepEqual(values[2], ["人员ID", "工号", "姓名", "部门", "人员状态", "公司人力总成本"]);
+  assert.deepEqual(values[2], ["钉钉人员编码", "工号", "姓名", "部门", "人员状态", "公司人力总成本"]);
   assert.equal(values.slice(3).length, 8);
   assert.equal(values.slice(3).every((row) => row[0] && row[5] === null), true);
 
@@ -154,7 +154,7 @@ const createSystemPayrollForm = () => {
   return form;
 };
 
-await checked("system template previews with stable employee id matches", async () => {
+await checked("system template previews with DingTalk userid primary-key matches", async () => {
   const response = await appFetch("/api/payroll/import?mode=preview", {
     method: "POST",
     body: createSystemPayrollForm(),

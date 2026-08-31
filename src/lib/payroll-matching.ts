@@ -17,7 +17,7 @@ export function matchPayrollPreview(preview: ImportPreview, employees: Employee[
         errors.push({
           sourceRow: row.sourceRow,
           name: row.name,
-          message: "人员ID在当前系统中不存在，请重新下载模板后填写。",
+          message: "钉钉人员编码在当前系统中不存在，请重新同步通讯录并下载模板。",
         });
         return;
       }
@@ -25,7 +25,7 @@ export function matchPayrollPreview(preview: ImportPreview, employees: Employee[
         errors.push({
           sourceRow: row.sourceRow,
           name: row.name,
-          message: "人员ID与当前姓名或工号不一致，请重新下载最新模板。",
+          message: "钉钉人员编码与当前姓名或工号不一致，请重新下载最新模板。",
         });
         return;
       }
