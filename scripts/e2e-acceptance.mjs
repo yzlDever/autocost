@@ -15,6 +15,7 @@ if (!authSecret) throw new Error("ACCEPTANCE_AUTH_SECRET is required");
 let cookie = "";
 const checks = [];
 let queryEmployeeIds = [];
+let internalEmployeeIds = [];
 
 async function checked(name, fn) {
   await fn();
@@ -140,6 +141,7 @@ await checked("system template contains every current and historical person with
   assert.deepEqual(values[2], ["钉钉人员编码", "工号", "姓名", "部门", "人员状态", "公司人力总成本"]);
   assert.equal(values.slice(3).length, 8);
   assert.equal(values.slice(3).every((row) => row[0] && row[5] === null), true);
+  assert.equal(values.slice(3).every((row) => String(row[0]).startsWith("ding_e2e_")), true);
 
   sheet.B1 = { t: "n", v: 202608 };
   values.slice(3).forEach((_, index) => {
@@ -217,8 +219,9 @@ await checked("system template commits without retaining source file", async () 
   assert.equal(body.result.updatedCosts, 8);
   assert.equal(body.result.createdEmployees, 0);
   assert.equal(body.result.sampleEmployeeIds.length, 2);
-  queryEmployeeIds = body.result.sampleEmployeeIds;
+  internalEmployeeIds = body.result.sampleEmployeeIds;
   const persisted = JSON.parse(await fs.readFile(statePath, "utf8"));
+  queryEmployeeIds = [...internalEmployeeIds];
   assert.deepEqual(Object.keys(persisted.imports[0]).sort(), [
     "actor", "createdAt", "errorRows", "fileName", "id", "period",
     "sha256", "status", "totalRows", "validRows",
@@ -256,13 +259,13 @@ await checked("manual cost edit requires and records a reason", async () => {
   const missingReason = await appFetch("/api/payroll/cost", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ employeeId: queryEmployeeIds[0], period: "2026-08", amount: 20000, reason: "" }),
+    body: JSON.stringify({ employeeId: internalEmployeeIds[0], period: "2026-08", amount: 20000, reason: "" }),
   });
   assert.equal(missingReason.status, 400);
   const response = await appFetch("/api/payroll/cost", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ employeeId: queryEmployeeIds[0], period: "2026-08", amount: 20000, reason: "端到端验收调整" }),
+    body: JSON.stringify({ employeeId: internalEmployeeIds[0], period: "2026-08", amount: 20000, reason: "端到端验收调整" }),
   });
   assert.equal(response.status, 200);
   const audit = await appFetch("/audit");
@@ -284,8 +287,8 @@ async function createClient(name) {
 
 const primaryClient = await createClient("验收经营分析系统");
 
-async function queryCost(key, items) {
-  const response = await fetch(`${baseUrl}/api/v1/labor-cost/query`, {
+async function queryCost(key, items, path = "/api/v2/labor-cost/query") {
+  const response = await fetch(`${baseUrl}${path}`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${key}`,
@@ -298,19 +301,19 @@ async function queryCost(key, items) {
 
 await checked("single-person and duplicate-person queries are rejected", async () => {
   const single = await queryCost(primaryClient.key, [
-    { employeeId: queryEmployeeIds[0], from: "2026-08-01", to: "2026-08-27" },
+    { employeeId: queryEmployeeIds[0], periods: [{ period: "2026-08", days: 15 }] },
   ]);
   assert.equal(single.body.errorCode, "MIN_PARTICIPANTS");
   const duplicate = await queryCost(primaryClient.key, [
-    { employeeId: queryEmployeeIds[0], from: "2026-08-01", to: "2026-08-27" },
-    { employeeId: queryEmployeeIds[0], from: "2026-08-01", to: "2026-08-27" },
+    { employeeId: queryEmployeeIds[0], periods: [{ period: "2026-08", days: 15 }] },
+    { employeeId: queryEmployeeIds[0], periods: [{ period: "2026-08", days: 15 }] },
   ]);
   assert.equal(duplicate.body.errorCode, "DUPLICATE_EMPLOYEE");
 });
 
 const validItems = [
-  { employeeId: queryEmployeeIds[0], from: "2026-08-01", to: "2026-08-27" },
-  { employeeId: queryEmployeeIds[1], from: "2026-08-01", to: "2026-08-27" },
+  { employeeId: queryEmployeeIds[0], periods: [{ period: "2026-08", days: 15 }] },
+  { employeeId: queryEmployeeIds[1], periods: [{ period: "2026-08", days: 15 }] },
 ];
 
 await checked("valid query returns aggregate only", async () => {
@@ -318,26 +321,39 @@ await checked("valid query returns aggregate only", async () => {
   assert.equal(response.status, 200);
   assert.equal(body.success, true);
   assert.equal(body.participantCount, 2);
-  assert.equal(body.allocationMethod, "calendar_day");
+  assert.equal(body.allocationMethod, "fixed_23_workdays");
   assert.equal(typeof body.totalCost, "number");
   assert.equal("items" in body, false);
   assert.equal("employeeId" in body, false);
   assert.equal("contributions" in body, false);
 });
 
+await checked("v1 compatibility alias accepts the new request schema", async () => {
+  const { response, body } = await queryCost(
+    primaryClient.key,
+    validItems,
+    "/api/v1/labor-cost/query",
+  );
+  assert.equal(response.status, 200);
+  assert.equal(body.success, true);
+  assert.equal(body.allocationMethod, "fixed_23_workdays");
+});
+
 await checked("near-identical differencing query is blocked", async () => {
-  const changed = [validItems[0], { ...validItems[1], to: "2026-08-26" }];
+  const changed = [validItems[0], { ...validItems[1], periods: [{ period: "2026-08", days: 14 }] }];
   const { body } = await queryCost(primaryClient.key, changed);
   assert.equal(body.errorCode, "DIFFERENCING_RISK");
 });
 
-const contributionClient = await createClient("贡献门槛验收系统");
-await checked("low-contribution padding is blocked", async () => {
-  const { body } = await queryCost(contributionClient.key, [
-    { employeeId: queryEmployeeIds[0], from: "2026-08-01", to: "2026-08-01" },
-    { employeeId: queryEmployeeIds[1], from: "2026-08-01", to: "2026-08-27" },
+const contributionClient = await createClient("低贡献允许验收系统");
+await checked("low-contribution participants are allowed", async () => {
+  const { response, body } = await queryCost(contributionClient.key, [
+    { employeeId: queryEmployeeIds[0], periods: [{ period: "2026-08", days: 1 }] },
+    { employeeId: queryEmployeeIds[1], periods: [{ period: "2026-08", days: 23 }] },
   ]);
-  assert.equal(body.errorCode, "CONTRIBUTION_TOO_LOW");
+  assert.equal(response.status, 200);
+  assert.equal(body.success, true);
+  assert.equal(typeof body.totalCost, "number");
 });
 
 await checked("disabled key becomes unauthorized", async () => {
@@ -361,7 +377,7 @@ await checked("unconfigured directory sync is safe and query logs render", async
   const logsPage = await appFetch("/integrations");
   const html = await logsPage.text();
   assert.match(html, /DIFFERENCING_RISK/);
-  assert.match(html, /CONTRIBUTION_TOO_LOW/);
+  assert.doesNotMatch(html, /CONTRIBUTION_TOO_LOW|贡献不得低于/);
 });
 
 await checked("logout clears access", async () => {

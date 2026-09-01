@@ -25,7 +25,10 @@ export default async function IntegrationsPage() {
           lastUsedAt: client.lastUsedAt,
         }))}
         logs={state.queryLogs.slice(0, 100)}
-        sampleItems={sampleEmployees.map((employee) => ({ employeeId: employee.id, from: `${latestPeriod}-01`, to: `${latestPeriod}-15` }))}
+        sampleItems={sampleEmployees.map((employee) => ({
+          employeeId: employee.id,
+          periods: [{ period: latestPeriod, days: 15 }],
+        }))}
       />
     </>
   );

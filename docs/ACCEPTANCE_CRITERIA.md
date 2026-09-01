@@ -83,14 +83,16 @@
 - [ ] 请求必须使用 `Authorization: Bearer <key>`。
 - [ ] 正常的两人查询只返回整批 `totalCost`。
 - [ ] 响应中没有逐人金额或逐人计算明细。
-- [ ] 日期按闭区间和自然日计算。
-- [ ] 跨月查询正确拆月并汇总。
+- [ ] 每个人可以传入一个或多个 `period + days` 月份记录。
+- [ ] 每月成本固定按“月度总成本 ÷ 23 × days”计算。
+- [ ] 多个月份正确汇总，并只在整批结果处四舍五入。
 - [ ] 同一个人员重复两次返回 `DUPLICATE_EMPLOYEE`。
 - [ ] 只有一名有效人员返回 `MIN_PARTICIPANTS`。
-- [ ] 零天、非法日期返回 `INVALID_DATE_RANGE`。
+- [ ] 非法月份返回 `INVALID_PERIOD`，零天或超过 23 天返回 `INVALID_WORKDAYS`。
+- [ ] 同一个人的重复月份返回 `DUPLICATE_PERIOD`。
 - [ ] 缺少工资月份返回 `MISSING_MONTHLY_COST`。
 - [ ] 某人员贡献为 0 返回 `ZERO_CONTRIBUTION`。
-- [ ] 某人员贡献低于整批 10% 返回 `CONTRIBUTION_TOO_LOW`。
+- [ ] 不设置 10% 最低贡献门槛，低贡献人员仍可参与多人聚合。
 - [ ] 高度相似的差分查询返回 `DIFFERENCING_RISK`。
 - [ ] 所有成功或失败请求都有 `requestId` 和查询日志。
 

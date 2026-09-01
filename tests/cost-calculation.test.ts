@@ -18,78 +18,113 @@ function costs(entries: Array<[string, string, number]>): MonthlyCost[] {
   }));
 }
 
-const today = new Date("2026-08-26T00:00:00.000Z");
+const today = new Date("2026-08-31T00:00:00.000Z");
 
-test("full-month query returns only the aggregate total", () => {
+test("23 workdays return the full monthly aggregate only", () => {
   const result = calculateBatchCost(
     [
-      { employeeId: "a", from: "2026-07-01", to: "2026-07-31" },
-      { employeeId: "b", from: "2026-07-01", to: "2026-07-31" },
+      { employeeId: "a", periods: [{ period: "2026-07", days: 23 }] },
+      { employeeId: "b", periods: [{ period: "2026-07", days: 23 }] },
     ],
     employees,
-    costs([["a", "2026-07", 310_000], ["b", "2026-07", 620_000]]),
+    costs([["a", "2026-07", 230_000], ["b", "2026-07", 460_000]]),
     { today },
   );
-  assert.deepEqual(result, { participantCount: 2, totalDays: 62, totalCostCents: 930_000 });
+  assert.deepEqual(result, { participantCount: 2, totalDays: 46, totalCostCents: 690_000 });
   assert.equal("contributions" in result, false);
 });
 
-test("partial month uses inclusive calendar-day allocation", () => {
+test("partial months always use the fixed 23-workday divisor", () => {
   const result = calculateBatchCost(
     [
-      { employeeId: "a", from: "2026-07-01", to: "2026-07-15" },
-      { employeeId: "b", from: "2026-07-17", to: "2026-07-31" },
+      { employeeId: "a", periods: [{ period: "2026-07", days: 15 }] },
+      { employeeId: "b", periods: [{ period: "2026-07", days: 8 }] },
     ],
     employees,
-    costs([["a", "2026-07", 310_000], ["b", "2026-07", 310_000]]),
+    costs([["a", "2026-07", 230_000], ["b", "2026-07", 460_000]]),
     { today },
   );
-  assert.equal(result.totalDays, 30);
-  assert.equal(result.totalCostCents, 300_000);
+  assert.equal(result.totalDays, 23);
+  assert.equal(result.totalCostCents, 310_000);
 });
 
-test("cross-month allocation splits by calendar month", () => {
+test("multiple months per person are summed before final rounding", () => {
   const result = calculateBatchCost(
     [
-      { employeeId: "a", from: "2026-06-16", to: "2026-07-15" },
-      { employeeId: "b", from: "2026-06-16", to: "2026-07-15" },
+      {
+        employeeId: "a",
+        periods: [
+          { period: "2026-07", days: 10 },
+          { period: "2026-08", days: 5 },
+        ],
+      },
+      { employeeId: "b", periods: [{ period: "2026-07", days: 23 }] },
     ],
     employees,
     costs([
-      ["a", "2026-06", 300_000], ["a", "2026-07", 310_000],
-      ["b", "2026-06", 300_000], ["b", "2026-07", 310_000],
+      ["a", "2026-07", 230_000],
+      ["a", "2026-08", 460_000],
+      ["b", "2026-07", 230_000],
     ]),
     { today },
   );
-  assert.equal(result.totalCostCents, 600_000);
+  assert.equal(result.totalDays, 38);
+  assert.equal(result.totalCostCents, 430_000);
 });
 
 for (const scenario of [
   {
     name: "rejects a single participant",
-    items: [{ employeeId: "a", from: "2026-07-01", to: "2026-07-31" }],
+    items: [{ employeeId: "a", periods: [{ period: "2026-07", days: 23 }] }],
     code: "MIN_PARTICIPANTS",
   },
   {
     name: "rejects duplicate employees",
     items: [
-      { employeeId: "a", from: "2026-07-01", to: "2026-07-31" },
-      { employeeId: "a", from: "2026-07-01", to: "2026-07-31" },
+      { employeeId: "a", periods: [{ period: "2026-07", days: 10 }] },
+      { employeeId: "a", periods: [{ period: "2026-07", days: 12 }] },
     ],
     code: "DUPLICATE_EMPLOYEE",
   },
   {
-    name: "rejects invalid dates",
+    name: "rejects duplicate periods for one employee",
     items: [
-      { employeeId: "a", from: "2026-07-31", to: "2026-07-01" },
-      { employeeId: "b", from: "2026-07-01", to: "2026-07-31" },
+      {
+        employeeId: "a",
+        periods: [
+          { period: "2026-07", days: 10 },
+          { period: "2026-07", days: 5 },
+        ],
+      },
+      { employeeId: "b", periods: [{ period: "2026-07", days: 12 }] },
     ],
-    code: "INVALID_DATE_RANGE",
+    code: "DUPLICATE_PERIOD",
+  },
+  {
+    name: "rejects more than 23 workdays",
+    items: [
+      { employeeId: "a", periods: [{ period: "2026-07", days: 24 }] },
+      { employeeId: "b", periods: [{ period: "2026-07", days: 12 }] },
+    ],
+    code: "INVALID_WORKDAYS",
+  },
+  {
+    name: "rejects a future period",
+    items: [
+      { employeeId: "a", periods: [{ period: "2026-09", days: 10 }] },
+      { employeeId: "b", periods: [{ period: "2026-07", days: 12 }] },
+    ],
+    code: "INVALID_PERIOD",
   },
 ] satisfies Array<{ name: string; items: QueryItem[]; code: string }>) {
   test(scenario.name, () => {
     assert.throws(
-      () => calculateBatchCost(scenario.items, employees, costs([["a", "2026-07", 300_000], ["b", "2026-07", 300_000]]), { today }),
+      () => calculateBatchCost(
+        scenario.items,
+        employees,
+        costs([["a", "2026-07", 230_000], ["b", "2026-07", 230_000]]),
+        { today },
+      ),
       (error: unknown) => error instanceof CalculationError && error.code === scenario.code,
     );
   });
@@ -99,28 +134,39 @@ test("rejects missing monthly cost", () => {
   assert.throws(
     () => calculateBatchCost(
       [
-        { employeeId: "a", from: "2026-07-01", to: "2026-07-31" },
-        { employeeId: "b", from: "2026-07-01", to: "2026-07-31" },
+        { employeeId: "a", periods: [{ period: "2026-07", days: 23 }] },
+        { employeeId: "b", periods: [{ period: "2026-07", days: 23 }] },
       ],
       employees,
-      costs([["a", "2026-07", 300_000]]),
+      costs([["a", "2026-07", 230_000]]),
       { today },
     ),
     (error: unknown) => error instanceof CalculationError && error.code === "MISSING_MONTHLY_COST",
   );
 });
 
-test("rejects a participant below the 10 percent contribution floor", () => {
-  assert.throws(
-    () => calculateBatchCost(
-      [
-        { employeeId: "a", from: "2026-07-01", to: "2026-07-31" },
-        { employeeId: "b", from: "2026-07-01", to: "2026-07-31" },
-      ],
-      employees,
-      costs([["a", "2026-07", 1_000], ["b", "2026-07", 100_000]]),
-      { today },
-    ),
-    (error: unknown) => error instanceof CalculationError && error.code === "CONTRIBUTION_TOO_LOW",
+test("allows a participant below ten percent of the aggregate", () => {
+  const result = calculateBatchCost(
+    [
+      { employeeId: "a", periods: [{ period: "2026-07", days: 1 }] },
+      { employeeId: "b", periods: [{ period: "2026-07", days: 23 }] },
+    ],
+    employees,
+    costs([["a", "2026-07", 1_000], ["b", "2026-07", 100_000]]),
+    { today },
   );
+  assert.equal(result.totalCostCents, 100_043);
+});
+
+test("uses Asia/Shanghai when validating the current period", () => {
+  const result = calculateBatchCost(
+    [
+      { employeeId: "a", periods: [{ period: "2026-09", days: 1 }] },
+      { employeeId: "b", periods: [{ period: "2026-09", days: 1 }] },
+    ],
+    employees,
+    costs([["a", "2026-09", 230_000], ["b", "2026-09", 230_000]]),
+    { today: new Date("2026-08-31T16:00:00.000Z") },
+  );
+  assert.equal(result.totalCostCents, 20_000);
 });

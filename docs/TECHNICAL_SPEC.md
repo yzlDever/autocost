@@ -1,24 +1,24 @@
-# Auto Cost 技术规格（V1）
+# Auto Cost 技术规格（V2）
 
 状态：开发基线  
-版本：1.1
-日期：2026-08-27
+版本：2.0
+日期：2026-08-31
 负责人：Heils 财务系统项目组
 
 ## 1. 项目目标
 
 Auto Cost 是独立的人力成本管理与查询系统，为公司经营分析系统提供受控的人力成本汇总数据。系统隔离保存工资数据，只允许财务人员访问，不向第三方返回个人成本。
 
-V1 使用钉钉企业身份作为唯一登录方式，完成工资 Excel 导入、工资管理、人员管理、仪表盘、接口密钥管理、聚合查询、查询日志和操作审计。系统不提供固定账号、演示人员或演示工资数据。
+V2 使用钉钉企业身份作为唯一登录方式，完成工资 Excel 导入、工资管理、人员管理、仪表盘、接口密钥管理、聚合查询、查询日志和操作审计。系统不提供固定账号、演示人员或演示工资数据。
 
 ## 2. 已冻结业务口径
 
 1. 第三方接口只返回整批总额，不返回逐人金额。
 2. 每次查询至少包含 2 名有效人员。
-3. 月度成本按自然日分摊。
-4. 日期范围为闭区间，开始日与结束日均计入。
+3. 月度成本固定按 23 个工作日分摊。
+4. 每名人员按月份传入 1 至 23 个工作日，可一次包含多个月份。
 5. 时区固定为 `Asia/Shanghai`，币种固定为 `CNY`。
-6. 跨月时按月拆分计算，最终汇总后四舍五入到 2 位小数。
+6. 多月份成本先累计，最终整批汇总后四舍五入到 2 位小数。
 7. 工资页面月份按倒序排列，最近月份靠左。
 8. Excel 只提取姓名、月份、公司人力总成本；部门由人员资料关联并保存月度快照。
 9. 原始 Excel 默认不持久化，只保留文件名、SHA-256、导入统计和审计信息。
@@ -28,7 +28,7 @@ V1 使用钉钉企业身份作为唯一登录方式，完成工资 Excel 导入�
 - 框架：Next.js 16 App Router、React 19、TypeScript。
 - 页面读取：React Server Components 直接读取服务端数据。
 - 页面写操作：Server Actions 或受认证的内部 Route Handlers。
-- 第三方接口：Next.js Route Handler，路径 `/api/v1/labor-cost/query`。
+- 第三方接口：Next.js Route Handler，主路径 `/api/v2/labor-cost/query`；`/api/v1/labor-cost/query` 暂作为同格式兼容地址。
 - Runtime：Node.js，支持 Excel 解析、加密和数据库访问。
 - 本地开发：文件型开发仓库，仅保存于 `.data/`，不提交 Git。
 - 生产环境：Neon PostgreSQL，通过 `DATABASE_URL` 使用；未配置数据库时禁止生产写入。
@@ -118,7 +118,7 @@ V1 使用钉钉企业身份作为唯一登录方式，完成工资 Excel 导入�
 ### QueryLog
 
 - 请求编号、来源系统、来源 IP、User-Agent。
-- 人员数、总自然日数、请求摘要。
+- 人员数、总工作日数、请求版本和请求摘要。
 - 成功/失败、错误码、中文原因。
 - 成功时保存整批汇总金额，不保存逐人成本。
 - 响应耗时、时间。
@@ -154,27 +154,28 @@ V1 使用钉钉企业身份作为唯一登录方式，完成工资 Excel 导入�
 单人在一个月内的成本：
 
 ```text
-monthlyCost × overlapCalendarDays / daysInMonth
+monthlyCost / 23 × workdays
 ```
 
-跨月请求拆成多个月份段。应用内部使用整数分和有理数累计，在最终整批结果处四舍五入到分。
+每名人员可传入多个月份。应用内部按分保存月度成本，所有人员与月份累计后，在最终整批结果处四舍五入到分。
 
 有效人员必须同时满足：
 
 1. `employeeId` 存在且人员互不重复。
-2. `from <= to`，并至少覆盖 1 个自然日。
-3. 范围不超过 366 天，不允许未来日期。
-4. 覆盖的每个月都有工资数据。
-5. 分摊成本大于 0。
+2. `periods` 包含 1 至 13 个不重复月份。
+3. `period` 使用 `YYYY-MM`，不允许未来月份。
+4. `days` 为 1 至 23 的整数。
+5. 覆盖的每个月都有工资数据。
+6. 分摊成本大于 0。
 
-整批有效人员少于 2 时拒绝。任一人员成本贡献低于整批总额的 10% 时拒绝，错误码 `CONTRIBUTION_TOO_LOW`。
+整批有效人员少于 2 时拒绝。不设置单人最低贡献比例。
 
 ## 9. 第三方 API
 
 请求：
 
 ```http
-POST /api/v1/labor-cost/query
+POST /api/v2/labor-cost/query
 Authorization: Bearer <security-string>
 Content-Type: application/json
 ```
@@ -182,8 +183,17 @@ Content-Type: application/json
 ```json
 {
   "items": [
-    { "employeeId": "ding_user_001", "from": "2026-07-01", "to": "2026-07-15" },
-    { "employeeId": "ding_user_002", "from": "2026-07-05", "to": "2026-07-20" }
+    {
+      "employeeId": "ding_user_001",
+      "periods": [
+        { "period": "2026-07", "days": 15 },
+        { "period": "2026-08", "days": 8 }
+      ]
+    },
+    {
+      "employeeId": "ding_user_002",
+      "periods": [{ "period": "2026-07", "days": 20 }]
+    }
   ]
 }
 ```
@@ -195,7 +205,7 @@ Content-Type: application/json
   "requestId": "req_xxx",
   "success": true,
   "participantCount": 2,
-  "allocationMethod": "calendar_day",
+  "allocationMethod": "fixed_23_workdays",
   "currency": "CNY",
   "totalCost": 56820.35
 }
@@ -205,13 +215,15 @@ Content-Type: application/json
 
 - `UNAUTHORIZED`
 - `INVALID_JSON`
-- `INVALID_DATE_RANGE`
+- `INVALID_PERIODS`
+- `INVALID_PERIOD`
+- `INVALID_WORKDAYS`
+- `DUPLICATE_PERIOD`
 - `DUPLICATE_EMPLOYEE`
 - `MIN_PARTICIPANTS`
 - `EMPLOYEE_NOT_FOUND`
 - `MISSING_MONTHLY_COST`
 - `ZERO_CONTRIBUTION`
-- `CONTRIBUTION_TOO_LOW`
 - `DIFFERENCING_RISK`
 
 不得在响应或运行日志中返回逐人成本。
@@ -220,9 +232,10 @@ Content-Type: application/json
 
 - API 密钥使用高熵随机值，格式 `ac_live_...`。
 - 数据库只保存 SHA-256 摘要和展示用前后缀。
-- 至少 2 名有效人员，且每名贡献不少于整批 10%。
-- 请求指纹由调用方、排序后的人员与时间范围生成。
-- 拒绝同一调用方短时间内仅增删一个人员、或只修改一个人员时间范围的高度相似请求。
+- 至少 2 名不同的有效人员；不设置单人最低贡献比例。
+- 请求指纹由调用方、排序后的人员、月份和天数生成。
+- 拒绝同一调用方短时间内仅增删一个人员、或只修改一个人员月份/天数的高度相似请求。
+- 迁移前 24 小时内的旧版 `from/to` 成功日志会转换为按月天数继续参与差分比较。
 - 不做请求频率限制；防滥用依赖密钥认证、防差分校验和查询日志审计。
 - 日志保存脱敏后的请求摘要，不保存明文密钥。
 

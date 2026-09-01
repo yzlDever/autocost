@@ -48,6 +48,14 @@ export type ApiClient = {
 
 export type QueryItem = {
   employeeId: string;
+  periods: Array<{
+    period: string;
+    days: number;
+  }>;
+};
+
+export type LegacyQueryItem = {
+  employeeId: string;
   from: string;
   to: string;
 };
@@ -62,7 +70,8 @@ export type QueryLog = {
   participantCount: number;
   totalDays: number;
   fingerprint: string;
-  queryItems: QueryItem[];
+  queryVersion?: 1 | 2;
+  queryItems: QueryItem[] | LegacyQueryItem[];
   success: boolean;
   errorCode: string | null;
   reason: string;

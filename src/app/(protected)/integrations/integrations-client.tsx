@@ -59,17 +59,17 @@ export function IntegrationsClient({ clients, logs, sampleItems }: { clients: Sa
     }
   }
 
-  const requestExample = `curl -X POST https://<your-domain>/api/v1/labor-cost/query \\
+  const requestExample = `curl -X POST https://<your-domain>/api/v2/labor-cost/query \\
   -H "Authorization: Bearer <security-string>" \\
   -H "Content-Type: application/json" \\
   -d '${JSON.stringify({ items: sampleItems.length === 2 ? sampleItems : [
-    { employeeId: "ding_user_001", from: "2026-07-01", to: "2026-07-15" },
-    { employeeId: "ding_user_002", from: "2026-07-05", to: "2026-07-20" },
+    { employeeId: "ding_user_001", periods: [{ period: "2026-07", days: 15 }] },
+    { employeeId: "ding_user_002", periods: [{ period: "2026-07", days: 20 }] },
   ] }, null, 2)}'`;
 
   return (
     <>
-      <div className="notice" style={{ marginBottom: 14 }}><ShieldCheck size={17} /><span>接口只返回整批总额。至少两名有效人员，且每名人员的贡献不得低于整批总额的 10%。</span></div>
+      <div className="notice" style={{ marginBottom: 14 }}><ShieldCheck size={17} /><span>接口只返回整批总额，且每次至少需要两名不同人员。人员 ID 使用钉钉 userId。</span></div>
       <section className="split-grid">
         <article className="panel">
           <div className="panel-header"><div><h2 className="panel-title">Security 字符串</h2><p className="panel-subtitle">每个第三方系统独立创建，完整值只展示一次</p></div><KeyRound size={18} style={{ color: "var(--primary)" }} /></div>
@@ -80,8 +80,8 @@ export function IntegrationsClient({ clients, logs, sampleItems }: { clients: Sa
           </div>
         </article>
         <article className="panel">
-          <div className="panel-header"><div><h2 className="panel-title">调用示例</h2><p className="panel-subtitle">自然日分摊 · 整批聚合返回</p></div></div>
-          <div className="panel-body"><div className="code-block">{requestExample}</div><div className="metric-row" style={{ marginTop: 12 }}><span className="metric-chip">POST</span><span className="metric-chip">Bearer Auth</span><span className="metric-chip">CNY</span><span className="metric-chip">Calendar Day</span></div></div>
+          <div className="panel-header"><div><h2 className="panel-title">调用示例</h2><p className="panel-subtitle">固定 23 个工作日分摊 · 整批聚合返回</p></div></div>
+          <div className="panel-body"><div className="code-block">{requestExample}</div><div className="metric-row" style={{ marginTop: 12 }}><span className="metric-chip">POST</span><span className="metric-chip">Bearer Auth</span><span className="metric-chip">CNY</span><span className="metric-chip">23 Workdays</span></div></div>
         </article>
       </section>
 
