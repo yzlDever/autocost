@@ -58,3 +58,8 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+
+# SprintFlow 回传脚本（含 token，勿提交）
+.sprintflow/
+# SprintFlow 需求级 worktree（并行隔离工作目录，勿提交）
+.worktrees/
